@@ -81,6 +81,9 @@ bundle exec bin/rsocket doctor
 
 ## Документы
 
+- [docs/architecture/overview.md](docs/architecture/overview.md) — как работает решение:
+  семь шагов от описания API до готовой интеграции, на реальном примере. **Начинать
+  отсюда.**
 - [docs/architecture/input.md](docs/architecture/input.md) — как устроен вход: путь от
   файла с описанием API до внутренней модели, со схемой и таблицей покрытия.
 - [docs/context/90-build-plan.md](docs/context/90-build-plan.md) — план сборки: что
