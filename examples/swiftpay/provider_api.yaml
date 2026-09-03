@@ -1,0 +1,322 @@
+openapi: 3.0.3
+info:
+  title: SwiftPay Transfer API
+  version: 2.4.0
+  description: |
+    API исходящих банковских переводов SwiftPay. Состояние перевода узнаётся
+    опросом ресурса перевода; push-уведомления сервис не отправляет.
+  contact:
+    name: SwiftPay Merchant Support
+    email: merchants@swiftpay.example
+
+servers:
+  - url: https://sandbox.swiftpay.example/api/v2
+    description: Test environment
+  - url: https://api.swiftpay.example/api/v2
+    description: Production environment
+
+security:
+  - BearerAuth: []
+
+tags:
+  - name: Transfers
+    description: Исходящие переводы и проверка их состояния
+
+paths:
+  /transfers:
+    post:
+      tags: [Transfers]
+      summary: Отправить перевод
+      operationId: submitTransfer
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TransferRequest'
+            example:
+              merchant_reference: "order-8841"
+              amount: 149.90
+              currency: RUB
+              destination:
+                account: "40817810000001234567"
+                name: "Анна Петрова"
+                bank_bic: "044525225"
+              purpose: "Возврат за заказ 8841"
+      responses:
+        '202':
+          description: Перевод принят в обработку
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transfer'
+              example:
+                transfer_id: "trf_01J6Q5R8M7"
+                merchant_reference: "order-8841"
+                amount: 149.90
+                currency: RUB
+                status: new
+                created_at: "2026-09-03T08:15:30Z"
+        '400':
+          $ref: '#/components/responses/BadRequest'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Такой merchant_reference уже использован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                code: duplicate_reference
+                message: "Transfer with this merchant_reference already exists"
+
+  /transfers/{transfer_id}:
+    get:
+      tags: [Transfers]
+      summary: Узнать состояние перевода
+      description: |
+        Возвращает текущее состояние. До терминального состояния клиенту следует
+        повторять запрос с разумной задержкой.
+      operationId: fetchTransfer
+      parameters:
+        - name: transfer_id
+          in: path
+          required: true
+          description: Идентификатор SwiftPay
+          schema:
+            type: string
+            pattern: '^trf_[A-Z0-9]+$'
+          example: "trf_01J6Q5R8M7"
+        - name: include
+          in: query
+          required: false
+          description: Дополнительные сведения в ответе
+          schema:
+            type: array
+            items:
+              type: string
+              enum: [destination, failure]
+          style: form
+          explode: false
+          example: [destination, failure]
+        - name: locale
+          in: query
+          required: false
+          description: Язык человекочитаемых пояснений
+          schema:
+            type: string
+            enum: [ru, en]
+            default: ru
+      responses:
+        '200':
+          description: Текущее состояние перевода
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transfer'
+              examples:
+                paid:
+                  summary: Деньги зачислены
+                  value:
+                    transfer_id: "trf_01J6Q5R8M7"
+                    merchant_reference: "order-8841"
+                    amount: 149.90
+                    currency: RUB
+                    status: paid
+                    created_at: "2026-09-03T08:15:30Z"
+                    updated_at: "2026-09-03T08:16:11Z"
+                declined:
+                  summary: Банк отклонил перевод
+                  value:
+                    transfer_id: "trf_01J6Q5R8M7"
+                    merchant_reference: "order-8841"
+                    amount: 149.90
+                    currency: RUB
+                    status: declined
+                    failure:
+                      reason: beneficiary_account_closed
+                      message: "Beneficiary account is closed"
+                    created_at: "2026-09-03T08:15:30Z"
+                    updated_at: "2026-09-03T08:15:58Z"
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '404':
+          description: Перевод не найден
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+              example:
+                code: transfer_not_found
+                message: "Transfer was not found"
+
+  /transfers/{transfer_id}/cancel:
+    post:
+      tags: [Transfers]
+      summary: Отозвать новый перевод
+      description: Отзыв возможен, пока состояние перевода равно new.
+      operationId: revokeTransfer
+      parameters:
+        - name: transfer_id
+          in: path
+          required: true
+          schema:
+            type: string
+            pattern: '^trf_[A-Z0-9]+$'
+      responses:
+        '200':
+          description: Перевод отклонён до отправки в банк
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Transfer'
+        '401':
+          $ref: '#/components/responses/Unauthorized'
+        '409':
+          description: Перевод уже отправлен в банк или завершён
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Problem'
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: "Передайте токен как `Authorization: Bearer <token>`."
+
+  parameters:
+    RequestId:
+      name: X-Request-Id
+      in: header
+      required: true
+      description: Уникальный идентификатор запроса для безопасного повтора
+      schema:
+        type: string
+        format: uuid
+
+  schemas:
+    TransferRequest:
+      type: object
+      additionalProperties: false
+      required: [merchant_reference, amount, currency, destination]
+      properties:
+        merchant_reference:
+          type: string
+          maxLength: 80
+          description: Идентификатор операции в системе клиента
+        amount:
+          type: number
+          format: double
+          multipleOf: 0.01
+          minimum: 1.00
+          maximum: 1000000.00
+          description: Сумма в основных единицах валюты, например 149.90 рубля
+          example: 149.90
+        currency:
+          type: string
+          enum: [RUB, KZT]
+          example: RUB
+        destination:
+          $ref: '#/components/schemas/BankAccount'
+        purpose:
+          type: string
+          maxLength: 140
+
+    BankAccount:
+      type: object
+      additionalProperties: false
+      required: [account, name, bank_bic]
+      properties:
+        account:
+          type: string
+          pattern: '^\d{20}$'
+          example: "40817810000001234567"
+        name:
+          type: string
+          maxLength: 160
+          example: "Анна Петрова"
+        bank_bic:
+          type: string
+          pattern: '^\d{9}$'
+          example: "044525225"
+
+    Transfer:
+      type: object
+      required: [transfer_id, merchant_reference, amount, currency, status, created_at]
+      properties:
+        transfer_id:
+          type: string
+          example: "trf_01J6Q5R8M7"
+        merchant_reference:
+          type: string
+          example: "order-8841"
+        amount:
+          type: number
+          format: double
+          multipleOf: 0.01
+          example: 149.90
+        currency:
+          type: string
+          enum: [RUB, KZT]
+        status:
+          type: string
+          description: new — принят; sent — передан банку; paid/declined — завершён.
+          enum: [new, sent, paid, declined]
+        destination:
+          $ref: '#/components/schemas/BankAccount'
+        failure:
+          $ref: '#/components/schemas/Failure'
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    Failure:
+      type: object
+      required: [reason, message]
+      properties:
+        reason:
+          type: string
+          enum: [beneficiary_account_closed, bank_rejected, compliance_rejected]
+        message:
+          type: string
+
+    Problem:
+      type: object
+      required: [code, message]
+      properties:
+        code:
+          type: string
+        message:
+          type: string
+        field:
+          type: string
+
+  responses:
+    BadRequest:
+      description: Запрос не прошёл проверку
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            code: invalid_amount
+            message: "Amount must have no more than two decimal places"
+            field: amount
+    Unauthorized:
+      description: Bearer-токен отсутствует, просрочен или недействителен
+      content:
+        application/json:
+          schema:
+            $ref: '#/components/schemas/Problem'
+          example:
+            code: invalid_token
+            message: "A valid access token is required"

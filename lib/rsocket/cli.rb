@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-require "date"
 require "thor"
-require "yaml"
 
 require_relative "../rsocket"
 
@@ -35,26 +33,9 @@ module Rsocket
     # поэтому живёт на уровне класса.
     def self.read_spec(path)
       raise Rsocket::SpecError, "не указан путь к описанию API" if path.nil? || path.empty?
-      raise Rsocket::SpecError, "файл описания не найден: #{path}" unless File.file?(path)
-      raise Rsocket::SpecError, "файл описания не читается: #{path}" unless File.readable?(path)
 
-      parse_yaml(File.read(path), path)
-    rescue SystemCallError => e
-      raise Rsocket::SpecError, "файл описания не прочитать: #{path} (#{e.class})"
+      Rsocket::Spec::Loader.load(path)
     end
-
-    def self.parse_yaml(text, path)
-      document = YAML.safe_load(text, aliases: true, permitted_classes: [Date, Time])
-      raise Rsocket::SpecError.new("описание пустое", where: path) if document.nil?
-      raise Rsocket::SpecError.new("в корне описания ожидается набор полей", where: path) unless
-        document.is_a?(Hash)
-
-      document
-    rescue Psych::SyntaxError => e
-      raise Rsocket::SpecError.new("описание не разбирается как YAML: #{e.problem}",
-                                   where: "#{path}, строка #{e.line}")
-    end
-    private_class_method :parse_yaml
 
     desc "version", "Показать версию инструмента"
     def version
@@ -88,8 +69,11 @@ module Rsocket
         raise Rsocket::Error, "порт вне допустимого диапазона: #{port}"
       end
 
-      spec_ready(options[:spec])
-      stage_not_ready("поддельный сервер", "T3.1")
+      loaded = spec_ready(options[:spec])
+      normalized = Rsocket::Spec::Normalizer.normalize(loaded)
+      say "Найдено HTTP-операций: #{normalized.operations.size}"
+      say "Поддельный сервер слушает http://127.0.0.1:#{port}"
+      Rsocket::Mock::Server.new(normalized).start(port:)
     end
 
     desc "verify", "Проверить готовую интеграцию против поддельного сервера"
@@ -105,8 +89,9 @@ module Rsocket
     # Единственное, что заготовка команды умеет по-настоящему: убедиться, что
     # ей дали читаемое описание. Об этом и сообщаем.
     def spec_ready(path)
-      self.class.read_spec(path)
+      loaded = self.class.read_spec(path)
       say "Описание прочитано и разбирается как YAML: #{path}"
+      loaded
     end
 
     def stage_not_ready(stage, tasks)

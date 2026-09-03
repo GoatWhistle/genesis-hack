@@ -1,0 +1,344 @@
+openapi: 3.1.0
+info:
+  title: KassaBox Merchant Transfers
+  version: 2026-08
+  summary: Переводы и возвраты из кабинета KassaBox
+  description: |
+    API использует общий конверт ответа: полезная нагрузка находится в data,
+    служебные сведения — в meta. Клиент может выбрать API-ключ или HTTP Basic.
+
+servers:
+  - url: https://stage-api.kassabox.example/merchant
+    description: Staging для интеграционных проверок
+  - url: https://merchant-api.kassabox.example
+    description: Рабочая среда
+
+security:
+  - MerchantKey: []
+  - BasicAuth: []
+
+tags:
+  - name: Money movement
+    description: Переводы, отмены и возвраты
+
+paths:
+  /v1/transfers:
+    post:
+      tags: [Money movement]
+      summary: Создать перевод
+      operationId: makeTransfer
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewTransfer'
+            examples:
+              card_transfer:
+                value:
+                  orderNo: "SHOP-4902"
+                  sum:
+                    value: 73500
+                    currency: RUB
+                  payee:
+                    cardToken: "card_c66d99"
+                  comment: "Выплата по договору 18"
+      responses:
+        '201':
+          description: Перевод зарегистрирован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransferEnvelope'
+              example:
+                data:
+                  transferNo: "KB-20260903-000184"
+                  orderNo: "SHOP-4902"
+                  state: registered
+                  sum:
+                    value: 73500
+                    currency: RUB
+                  registeredAt: "2026-09-03T09:20:00+03:00"
+                meta:
+                  requestId: "req-f8e219"
+                  serverTime: "2026-09-03T09:20:00+03:00"
+        '400':
+          description: Поля запроса заполнены неверно
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+              example:
+                data:
+                  errorCode: bad_sum
+                  errorText: "sum.value must be positive"
+                meta:
+                  requestId: "req-f8e219"
+                  serverTime: "2026-09-03T09:20:00+03:00"
+        '401':
+          description: Не удалось проверить учётные данные
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+
+  /v1/transfers/{transferNo}:
+    get:
+      tags: [Money movement]
+      summary: Получить сведения о переводе
+      operationId: transferInfo
+      parameters:
+        - $ref: '#/components/parameters/TransferNo'
+      responses:
+        '200':
+          description: Перевод и его текущее состояние
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransferEnvelope'
+              examples:
+                delivered:
+                  value:
+                    data:
+                      transferNo: "KB-20260903-000184"
+                      orderNo: "SHOP-4902"
+                      state: delivered
+                      sum:
+                        value: 73500
+                        currency: RUB
+                      registeredAt: "2026-09-03T09:20:00+03:00"
+                      finishedAt: "2026-09-03T09:20:42+03:00"
+                    meta:
+                      requestId: "req-84c1b0"
+                      serverTime: "2026-09-03T09:20:43+03:00"
+      # KassaBox исторически не документирует ошибки этой операции.
+
+  /v1/transfers/{transferNo}/abort:
+    post:
+      tags: [Money movement]
+      summary: Остановить перевод до передачи в банк
+      operationId: abortTransfer
+      parameters:
+        - $ref: '#/components/parameters/TransferNo'
+      responses:
+        '200':
+          description: Перевод остановлен
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransferEnvelope'
+        '409':
+          description: Текущее состояние не допускает остановку
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ErrorEnvelope'
+      # Ответы 400, 401 и 5xx в публичном описании отсутствуют.
+
+  /v1/refunds:
+    post:
+      tags: [Money movement]
+      summary: Вернуть средства по завершённому переводу
+      operationId: issueRefund
+      description: |
+        Создаёт полный или частичный возврат. Суммарный объём возвратов не может
+        превышать сумму исходного перевода.
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyToken'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NewRefund'
+            example:
+              transferNo: "KB-20260903-000184"
+              sum:
+                value: 25000
+                currency: RUB
+              reason: "Частичный возврат покупателю"
+      responses:
+        '201':
+          description: Возврат зарегистрирован
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RefundEnvelope'
+              example:
+                data:
+                  refundNo: "RF-20260903-000017"
+                  transferNo: "KB-20260903-000184"
+                  state: accepted
+                  sum:
+                    value: 25000
+                    currency: RUB
+                  registeredAt: "2026-09-03T10:02:10+03:00"
+                meta:
+                  requestId: "req-33a202"
+                  serverTime: "2026-09-03T10:02:10+03:00"
+      # Для этой новой операции поставщик пока не опубликовал каталог ошибок.
+
+components:
+  securitySchemes:
+    MerchantKey:
+      type: apiKey
+      in: header
+      name: X-KassaBox-Key
+      description: Постоянный ключ магазина из личного кабинета
+    BasicAuth:
+      type: http
+      scheme: basic
+      description: Логин магазина и отдельный пароль API
+
+  parameters:
+    IdempotencyToken:
+      name: X-Idempotency-Token
+      in: header
+      required: true
+      description: Уникальный токен операции
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 64
+    TransferNo:
+      name: transferNo
+      in: path
+      required: true
+      schema:
+        type: string
+        pattern: '^KB-\d{8}-\d{6}$'
+      example: "KB-20260903-000184"
+
+  schemas:
+    Money:
+      type: object
+      additionalProperties: false
+      required: [value, currency]
+      properties:
+        value:
+          type: integer
+          minimum: 1
+          description: Сумма в минимальных единицах валюты
+          example: 73500
+        currency:
+          type: string
+          enum: [RUB]
+
+    NewTransfer:
+      type: object
+      additionalProperties: false
+      required: [orderNo, sum, payee]
+      properties:
+        orderNo:
+          type: string
+          maxLength: 50
+        sum:
+          $ref: '#/components/schemas/Money'
+        payee:
+          type: object
+          additionalProperties: false
+          required: [cardToken]
+          properties:
+            cardToken:
+              type: string
+              pattern: '^card_[a-z0-9]+$'
+        comment:
+          type: string
+          maxLength: 120
+
+    NewRefund:
+      type: object
+      additionalProperties: false
+      required: [transferNo, sum, reason]
+      properties:
+        transferNo:
+          type: string
+          pattern: '^KB-\d{8}-\d{6}$'
+        sum:
+          $ref: '#/components/schemas/Money'
+        reason:
+          type: string
+          minLength: 3
+          maxLength: 200
+
+    Transfer:
+      type: object
+      required: [transferNo, orderNo, state, sum, registeredAt]
+      properties:
+        transferNo:
+          type: string
+        orderNo:
+          type: string
+        state:
+          type: string
+          enum: [registered, executing, delivered, rejected, aborted]
+        sum:
+          $ref: '#/components/schemas/Money'
+        registeredAt:
+          type: string
+          format: date-time
+        finishedAt:
+          type: string
+          format: date-time
+
+    Refund:
+      type: object
+      required: [refundNo, transferNo, state, sum, registeredAt]
+      properties:
+        refundNo:
+          type: string
+        transferNo:
+          type: string
+        state:
+          type: string
+          enum: [accepted, processing, refunded, rejected]
+        sum:
+          $ref: '#/components/schemas/Money'
+        registeredAt:
+          type: string
+          format: date-time
+
+    ResponseMeta:
+      type: object
+      required: [requestId, serverTime]
+      properties:
+        requestId:
+          type: string
+        serverTime:
+          type: string
+          format: date-time
+
+    TransferEnvelope:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: '#/components/schemas/Transfer'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+
+    RefundEnvelope:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          $ref: '#/components/schemas/Refund'
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'
+
+    ErrorEnvelope:
+      type: object
+      required: [data, meta]
+      properties:
+        data:
+          type: object
+          required: [errorCode, errorText]
+          properties:
+            errorCode:
+              type: string
+            errorText:
+              type: string
+        meta:
+          $ref: '#/components/schemas/ResponseMeta'

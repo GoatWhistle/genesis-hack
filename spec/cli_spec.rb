@@ -106,13 +106,20 @@ RSpec.describe Rsocket::CLI do
   end
 
   describe "mock и verify" do
-    it "проверяют аргументы и честно сообщают о несобранной стадии", :aggregate_failures do
-      %w[mock verify].each do |command|
-        output, code = run("rsocket", command, "--spec", sample_spec)
+    it "оставляет verify явно несобранным", :aggregate_failures do
+      output, code = run("rsocket", "verify", "--spec", sample_spec)
 
-        expect(output).to include("ещё не собрана")
-        expect(code).to eq(described_class::STAGE_NOT_READY)
-      end
+      expect(output).to include("ещё не собрана")
+      expect(code).to eq(described_class::STAGE_NOT_READY)
+    end
+
+    it "запускает mock на выбранном порту" do
+      server = instance_double(Rsocket::Mock::Server, start: nil)
+      allow(Rsocket::Mock::Server).to receive(:new).and_return(server)
+
+      described_class.start(["mock", "--spec", sample_spec, "--port", "4123"])
+
+      expect(server).to have_received(:start).with(port: 4123)
     end
 
     it "не принимают порт вне допустимого диапазона", :aggregate_failures do
