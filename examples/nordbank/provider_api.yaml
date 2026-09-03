@@ -1,0 +1,330 @@
+openapi: 3.0.1
+info:
+  title: Nordbank Payment Orders API
+  version: "1.4"
+  description: |
+    Программный интерфейс исходящих платежей Nordbank для корпоративных клиентов.
+
+    Доступ выдаётся вместе с договором обслуживания. Ключ доступа передаётся
+    в заголовке каждого запроса, см. описание конкретной операции.
+
+    Суммы во всём интерфейсе передаются строкой с двумя знаками после точки,
+    в рублях и копейках: "1500.00". Округление на стороне банка не выполняется.
+  contact:
+    name: Nordbank Integration Desk
+    email: api@nordbank.example
+  license:
+    name: Proprietary
+
+servers:
+  - url: https://api-test.nordbank.example/payments/v1
+    description: Тестовый контур, выдаётся на время подключения
+  - url: https://api.nordbank.example/payments/v1
+    description: Промышленный контур
+
+tags:
+  - name: Payment orders
+    description: Платёжные поручения и их состояние
+  - name: Accounts
+    description: Сведения по счетам клиента
+
+paths:
+  /payment-orders:
+    post:
+      tags: [Payment orders]
+      summary: Создать платёжное поручение
+      operationId: createPaymentOrder
+      description: |
+        Регистрирует платёжное поручение на списание со счёта клиента.
+
+        Запрос выполняется с заголовком X-Nordbank-Access-Key, значение — ключ
+        доступа из личного кабинета. Запрос без этого заголовка банк не исполняет.
+
+        Обязательны поля orderReference, amount, currency и beneficiary.
+        Поручение без orderReference не принимается, потому что банк использует
+        его для защиты от повторной отправки.
+
+        Списание выполняется в тот же операционный день, если поручение принято
+        до 17:30 московского времени.
+      parameters:
+        - $ref: '#/components/parameters/CorrelationId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/PaymentOrderRequest'
+      responses:
+        '201':
+          description: Поручение зарегистрировано и поставлено в очередь на исполнение
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentOrder'
+
+  /payment-orders/{paymentId}:
+    get:
+      tags: [Payment orders]
+      summary: Состояние платёжного поручения
+      operationId: getPaymentOrder
+      description: |
+        Возвращает поручение с текущим состоянием.
+
+        Требуется заголовок X-Nordbank-Access-Key с ключом доступа.
+
+        Состояние обновляется по мере прохождения поручения через операционный
+        день банка, опрашивать чаще одного раза в минуту не рекомендуется.
+      parameters:
+        - $ref: '#/components/parameters/PaymentId'
+      responses:
+        '200':
+          description: Текущее состояние поручения
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentOrder'
+
+  /payment-orders/{paymentId}/revocation:
+    post:
+      tags: [Payment orders]
+      summary: Отозвать платёжное поручение
+      operationId: revokePaymentOrder
+      description: |
+        Отзывает поручение, пока оно не ушло в расчётную систему, то есть
+        в состояниях ACCEPTED и IN_PROGRESS.
+
+        Требуется заголовок X-Nordbank-Access-Key с ключом доступа.
+
+        Поле reason обязательно: банк хранит основание отзыва в архиве операций.
+      parameters:
+        - $ref: '#/components/parameters/PaymentId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RevocationRequest'
+      responses:
+        '200':
+          description: Поручение отозвано
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/PaymentOrder'
+
+  /accounts/{accountNumber}/balance:
+    get:
+      tags: [Accounts]
+      summary: Остаток по счёту
+      operationId: getAccountBalance
+      description: |
+        Возвращает остаток и доступную к списанию сумму по счёту клиента.
+
+        Требуется заголовок X-Nordbank-Access-Key с ключом доступа.
+      parameters:
+        - name: accountNumber
+          in: path
+          required: true
+          description: Двадцатизначный номер счёта клиента в Nordbank
+          schema:
+            type: string
+            pattern: '^\d{20}$'
+      responses:
+        '200':
+          description: Остаток на момент запроса
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccountBalance'
+
+components:
+  parameters:
+    CorrelationId:
+      name: X-Correlation-Id
+      in: header
+      required: false
+      description: Идентификатор запроса на стороне клиента, попадает в журнал банка
+      schema:
+        type: string
+        maxLength: 64
+
+    PaymentId:
+      name: paymentId
+      in: path
+      required: true
+      description: Идентификатор поручения, присвоенный банком
+      schema:
+        type: string
+        pattern: '^NB[0-9]{16}$'
+
+  schemas:
+    Money:
+      type: string
+      description: |
+        Сумма строкой, рубли и копейки через точку, ровно два знака после точки.
+        Разделители разрядов не допускаются. Пример записи: 1500.00
+      pattern: '^[0-9]{1,12}\.[0-9]{2}$'
+      maxLength: 15
+
+    Beneficiary:
+      type: object
+      description: |
+        Получатель средств. Способ перевода определяется заполненной группой полей:
+        реквизиты счёта либо карта. Заполнять обе группы одновременно нельзя.
+      oneOf:
+        - $ref: '#/components/schemas/AccountBeneficiary'
+        - $ref: '#/components/schemas/CardBeneficiary'
+
+    AccountBeneficiary:
+      type: object
+      required: [name]
+      description: |
+        Перевод по банковским реквизитам. Кроме name обязательны accountNumber,
+        bic и inn — без них поручение отклоняется на приёме.
+      properties:
+        name:
+          type: string
+          description: Наименование получателя как в договоре
+          maxLength: 160
+        accountNumber:
+          type: string
+          description: Счёт получателя, двадцать цифр
+          pattern: '^\d{20}$'
+        bic:
+          type: string
+          description: БИК банка получателя, девять цифр
+          pattern: '^\d{9}$'
+        inn:
+          type: string
+          description: ИНН получателя, десять или двенадцать цифр
+          pattern: '^\d{10}(\d{2})?$'
+        kpp:
+          type: string
+          description: КПП получателя, заполняется для юридических лиц
+          pattern: '^\d{9}$'
+
+    CardBeneficiary:
+      type: object
+      required: [name]
+      description: |
+        Перевод на карту. Кроме name обязателен cardNumber. Переводы на карты
+        доступны не по всем тарифам, уточняйте у менеджера.
+      properties:
+        name:
+          type: string
+          maxLength: 160
+        cardNumber:
+          type: string
+          description: Номер карты получателя без пробелов
+          pattern: '^\d{16,19}$'
+
+    PaymentOrderRequest:
+      type: object
+      required: [amount, currency]
+      description: |
+        Платёжное поручение на списание. Помимо amount и currency обязательны
+        orderReference и beneficiary: поручение без них банк не регистрирует.
+      properties:
+        orderReference:
+          type: string
+          description: |
+            Номер операции на стороне клиента. Обязательное поле.
+            Повторная отправка того же orderReference не создаёт второе списание.
+          maxLength: 40
+        payerAccount:
+          type: string
+          description: |
+            Счёт списания. Если не указан, используется основной счёт,
+            закреплённый за ключом доступа.
+          pattern: '^\d{20}$'
+        amount:
+          $ref: '#/components/schemas/Money'
+        currency:
+          type: string
+          description: Валюта поручения, поддерживается только рубль
+          enum: [RUB]
+        beneficiary:
+          $ref: '#/components/schemas/Beneficiary'
+        paymentPurpose:
+          type: string
+          description: |
+            Назначение платежа как оно попадёт в платёжный документ.
+            Обязательно для переводов по банковским реквизитам.
+          maxLength: 210
+        valueDate:
+          type: string
+          format: date
+          description: Дата валютирования, по умолчанию — текущий операционный день
+
+    RevocationRequest:
+      type: object
+      description: |
+        Отзыв поручения. Поле reason обязательно, банк сохраняет основание
+        в архиве операций.
+      properties:
+        reason:
+          type: string
+          description: Основание отзыва, свободный текст
+          minLength: 3
+          maxLength: 200
+
+    PaymentOrder:
+      allOf:
+        - $ref: '#/components/schemas/PaymentOrderRequest'
+        - type: object
+          required: [paymentId, state]
+          properties:
+            paymentId:
+              type: string
+              description: Идентификатор поручения в Nordbank
+              pattern: '^NB[0-9]{16}$'
+            state:
+              type: string
+              description: |
+                Состояние поручения.
+                ACCEPTED — принято и ожидает обработки.
+                IN_PROGRESS — передано в расчётную систему.
+                EXECUTED — исполнено, средства списаны.
+                RETURNED — возвращено банком получателя или расчётной системой.
+                REVOKED — отозвано клиентом до исполнения.
+              enum: [ACCEPTED, IN_PROGRESS, EXECUTED, RETURNED, REVOKED]
+            stateComment:
+              type: string
+              description: |
+                Пояснение банка к состоянию. Для RETURNED здесь приходит текст
+                отказа расчётной системы, для остальных состояний поле пустое.
+              maxLength: 250
+            acceptedAt:
+              type: string
+              format: date-time
+              description: Момент регистрации поручения
+            executedAt:
+              type: string
+              format: date-time
+              description: Момент исполнения, заполняется только в состоянии EXECUTED
+
+    AccountBalance:
+      type: object
+      required: [accountNumber, currency]
+      description: |
+        Остаток по счёту. Обязательно приходят также balance и available —
+        поля заполняются всегда, даже когда остаток нулевой.
+      properties:
+        accountNumber:
+          type: string
+          pattern: '^\d{20}$'
+        currency:
+          type: string
+          enum: [RUB]
+        balance:
+          $ref: '#/components/schemas/Money'
+        available:
+          type: string
+          description: |
+            Доступная к списанию сумма строкой, рубли и копейки через точку.
+            Отличается от balance на сумму неисполненных поручений и арестов.
+          pattern: '^[0-9]{1,12}\.[0-9]{2}$'
+        asOf:
+          type: string
+          format: date-time
+          description: Момент, на который посчитан остаток

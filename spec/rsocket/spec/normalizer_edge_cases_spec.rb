@@ -15,7 +15,7 @@ RSpec.describe Rsocket::Spec::Normalizer do
 
   def normalization_error(contents)
     normalize_yaml(contents)
-    raise "Expected normalization to fail"
+    raise "Ожидали, что раскладка упадёт"
   rescue Rsocket::Error => e
     e
   end
@@ -125,6 +125,25 @@ RSpec.describe Rsocket::Spec::Normalizer do
     YAML
   end
 
+  # Описание, где требование авторизации есть только словами: раздела
+  # securitySchemes нет, зато в тексте операции сказано про заголовок с ключом.
+  def prose_only_auth_yaml
+    <<~YAML
+      openapi: 3.0.1
+      info: { title: Prose auth, version: "1.4" }
+      paths:
+        /payment-orders:
+          post:
+            description: Запрос выполняется с заголовком X-Access-Key, значение — ключ доступа.
+            responses:
+              '201': { description: accepted }
+    YAML
+  end
+
+  def undeclared_auth_note(result)
+    result.notes.find { |note| note.where == "components.securitySchemes" }
+  end
+
   def alternative_auth_yaml
     <<~YAML
       openapi: 3.1.0
@@ -149,13 +168,13 @@ RSpec.describe Rsocket::Spec::Normalizer do
     YAML
   end
 
-  it "reports a paths section that has parameters but no HTTP methods" do
+  it "замечает раздел paths с параметрами, но без методов" do
     error = normalization_error(no_operations_yaml)
     expect([error.class, error.where, error.message.lines.size])
       .to eq([Rsocket::SpecError, "paths", 1])
   end
 
-  it "preserves an unknown authentication scheme and explains it in a note" do
+  it "сохраняет незнакомый способ авторизации и объясняет его в отчёте" do
     result = normalize_yaml(unknown_auth_yaml)
     expect(unknown_auth_summary(result))
       .to eq([:unknown, "Provider-specific signing", :needs_confirmation,
@@ -163,27 +182,41 @@ RSpec.describe Rsocket::Spec::Normalizer do
               "Способ авторизации не распознан и требует ручной проверки"])
   end
 
-  it "accepts an operation with neither examples nor documented errors" do
+  it "принимает операцию без примеров и без описанных ошибок" do
     operation = normalize_yaml(no_examples_or_errors_yaml).operations.first
     actual = [operation.request_examples, operation.responses.keys,
               operation.responses.fetch(200).examples]
     expect(actual).to eq([{}, [200], {}])
   end
 
-  it "explains missing examples and documented errors" do
-    notes = normalize_yaml(no_examples_or_errors_yaml).notes.map(&:to_h)
+  it "называет обе нехватки — примеры и ответы с ошибками" do
+    notes = normalize_yaml(no_examples_or_errors_yaml).notes
+    operation_notes = notes.select { |note| note.where.start_with?("paths.") }
 
-    expect(notes).to match_array(expected_coverage_notes)
+    expect(operation_notes.map(&:to_h)).to match_array(expected_coverage_notes)
   end
 
-  it "keeps query-only input separate from a missing request body" do
+  it "не путает параметры в строке запроса с отсутствующим телом" do
     operation = normalize_yaml(query_only_input_yaml).operations.first
     actual = [operation.query_params.map(&:name), operation.query_params.map(&:required),
               operation.request_fields]
     expect(actual).to eq([%w[amount recipient], [true, true], []])
   end
 
-  it "retains both alternative authentication schemes" do
+  it "не выдаёт описание без схем авторизации за открытый API" do
+    result = normalize_yaml(prose_only_auth_yaml)
+    note = undeclared_auth_note(result)
+
+    expect([result.security_schemes, note.level]).to eq([[], :needs_confirmation])
+  end
+
+  it "сохраняет текст операции, в котором требование авторизации записано словами" do
+    operation = normalize_yaml(prose_only_auth_yaml).operations.first
+
+    expect(operation.description).to include("X-Access-Key")
+  end
+
+  it "сохраняет оба способа авторизации на выбор" do
     result = normalize_yaml(alternative_auth_yaml)
     expect(alternative_auth_summary(result)).to eq(
       [[["HeaderKey", :api_key], ["BearerToken", :bearer]], %w[HeaderKey BearerToken]]

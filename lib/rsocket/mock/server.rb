@@ -15,11 +15,16 @@ module Rsocket
 
       def initialize(response)
         @response = response
-        super("Webhook endpoint returned HTTP #{response.status}")
+        super("Приёмник вебхука ответил HTTP #{response.status}")
       end
     end
 
-    # Rack application backed entirely by a normalized API description.
+    # Поддельный сервер провайдера: обычное Rack-приложение, у которого нет
+    # своей логики — весь ответ целиком берётся из описания API.
+    #
+    # Отдельно умеет постучаться вебхуком по нашему же адресу и подписать тело
+    # HMAC. Это единственный способ проверить приём уведомлений до того, как
+    # настоящий провайдер выдаст доступ к песочнице.
     class Server
       DEFAULT_SIGNATURE_HEADER = "X-Webhook-Signature"
 

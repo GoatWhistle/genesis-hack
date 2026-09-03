@@ -15,7 +15,11 @@ module Rsocket
     ].freeze
     private_constant :PATTERN_FALLBACKS, :PATTERN_CLASS_CHARACTERS
 
-    # Chooses deterministic responses for operations in the normalized API description.
+    # Выбор ответа на запрос по разобранному описанию API.
+    #
+    # Ответ на один и тот же запрос всегда один и тот же: случайные данные
+    # превратили бы проверку интеграции в лотерею. Поэтому из нескольких
+    # примеров берём первый, а не любой, и ничего не выдумываем на ходу.
     class Responder
       Route = Data.define(:verb, :pattern, :operation)
       private_constant :Route
@@ -33,10 +37,10 @@ module Rsocket
 
         return response_for(route.operation) if route
         if path?(clean_path)
-          return error(405, "method_not_allowed", "Method is not described for this path")
+          return error(405, "method_not_allowed", "Метод не описан для этого пути")
         end
 
-        error(404, "route_not_found", "Route is not present in the API description")
+        error(404, "route_not_found", "Такого пути нет в описании API")
       end
 
       private
@@ -97,7 +101,11 @@ module Rsocket
       end
     end
 
-    # Builds stable JSON-compatible values from normalized fields.
+    # Сбор значений по описанию поля, когда готового примера в описании нет.
+    #
+    # Значения нарочно скучные и постоянные: даты из начала века, адреса на
+    # example.test, нули вместо сумм. Такой ответ ни с чем не спутаешь и в
+    # настоящую платёжную систему случайно не отправишь.
     class ExampleBuilder
       FORMATS = {
         "date" => "2000-01-01",
@@ -170,7 +178,12 @@ module Rsocket
       end
     end
 
-    # Produces a minimal value for the common regular-expression subset used by API schemas.
+    # Подбор строки под pattern из описания поля.
+    #
+    # Разбираем не весь язык регулярных выражений, а тот кусок, которым в
+    # описаниях API пользуются на деле: классы символов, группы, повторы. Что бы
+    # ни собралось, результат проверяется самой же регуляркой — заведомо
+    # неверный пример хуже честного отказа.
     class PatternExample
       def initialize(source)
         @source = source

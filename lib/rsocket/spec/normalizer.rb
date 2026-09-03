@@ -27,6 +27,7 @@ module Rsocket
         security = SecurityNormalizer.new(@document, @notes)
         operations = OperationNormalizer.new(@document, SchemaNormalizer.new, security).operations
         ensure_operations(operations)
+        security.note_undeclared_authentication(operations)
         CoverageNotes.new(operations, @notes).call
         build_spec(operations, security.schemes)
       end

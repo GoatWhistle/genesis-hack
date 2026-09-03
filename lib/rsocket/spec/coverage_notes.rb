@@ -4,7 +4,11 @@ require_relative "../ir"
 
 module Rsocket
   module Spec
-    # Records gaps that do not make an OpenAPI document invalid but weaken generated artifacts.
+    # Пробелы описания, из-за которых заготовка выйдет беднее.
+    #
+    # Ни примеры, ни ответы с ошибками OpenAPI не требует, и падать тут не за
+    # что. Но именно на этих местах сгенерированный код придётся дописывать
+    # руками, поэтому мы называем их заранее, а не оставляем на потом.
     class CoverageNotes
       def initialize(operations, notes)
         @operations = operations

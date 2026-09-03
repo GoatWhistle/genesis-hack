@@ -9,7 +9,12 @@ module Rsocket
     LoaderResult = Data.define(:document, :raw_document, :notes)
     LoaderNote = Data.define(:level, :where, :message)
 
-    # Reads a YAML OpenAPI document and returns both its source and resolved forms.
+    # Чтение описания API из YAML.
+    #
+    # Отдаём документ в двух видах сразу. Разрешённый — с раскрытыми ссылками —
+    # удобно разбирать: не надо на каждом шаге помнить про $ref. Исходный нужен,
+    # чтобы показать человеку его же файл, а не нашу развёрнутую копию, где от
+    # имён схем ничего не осталось.
     class Loader
       DEFAULT_MAX_REFERENCE_DEPTH = 64
       Result = LoaderResult
@@ -74,7 +79,12 @@ module Rsocket
       end
     end
 
-    # Resolves local JSON References while retaining unsupported external ones.
+    # Раскрытие ссылок внутри документа.
+    #
+    # Написано своими руками намеренно. Готовые библиотеки разрешения $ref тянут
+    # за собой сеть и загрузку соседних файлов, а нам нужен ровно один файл и
+    # предсказуемое поведение: кольцо — понятная ошибка с местом, слишком
+    # глубокая цепочка — тоже, внешняя ссылка — запись в отчёт, а не падение.
     class ReferenceResolver
       Context = Data.define(:where, :reference_stack, :ancestors)
 
@@ -126,6 +136,10 @@ module Rsocket
         SchemaMerger.call(resolve(target, target_context), resolve(hash.except("$ref"), context))
       end
 
+      # Внешнюю ссылку не тянем: файла рядом может не быть, а ходить в сеть за
+      # чужим описанием посреди разбора — плохой обмен. Оставляем узел как есть
+      # и говорим об этом в отчёте: человек решит, дописать руками или принести
+      # недостающий файл.
       def resolve_external(hash, reference, context)
         @notes << NoteFactory.call(
           level: :unsupported,
@@ -179,7 +193,12 @@ module Rsocket
       end
     end
 
-    # Applies the schema-composition rules intentionally supported by the loader.
+    # Составные схемы: allOf, oneOf, anyOf.
+    #
+    # allOf честно сливается — это и есть его смысл. А oneOf и anyOf — развилка,
+    # и выбрать её за провайдера мы не можем. Берём первую ветку: она в описаниях
+    # почти всегда основная, и получается рабочая заготовка вместо пустого места.
+    # Догадку не прячем — она уходит в отчёт «проверить руками».
     class SchemaComposition
       def initialize(resolver, notes)
         @resolver = resolver

@@ -4,9 +4,9 @@ require "tempfile"
 
 require "rsocket/spec/loader"
 
-# The repository assigns specification parsing to spec/spec/, while the public
-# constant is namespaced under Rsocket. This alias keeps RuboCop's path mapping
-# aligned with the team-owned test directory.
+# Разбор описания живёт в spec/spec/, а сам класс — внутри Rsocket. Псевдоним
+# нужен только для того, чтобы RuboCop не спорил о раскладке каталогов: имя
+# каталога здесь наше, а не производное от неймспейса.
 module Spec
   Loader = Rsocket::Spec::Loader
 end
@@ -188,30 +188,30 @@ RSpec.describe Spec::Loader do
     YAML
   end
 
-  it "loads OpenAPI 3.0 and 3.1 documents" do
+  it "читает описания OpenAPI 3.0 и 3.1" do
     %w[3.0.3 3.1.0].each do |version|
       result = load_yaml("openapi: #{version}\npaths: {}\n")
       expect(result.document).to include("openapi" => version, "paths" => {})
     end
   end
 
-  it "allows safe YAML aliases" do
+  it "разворачивает безопасные псевдонимы YAML" do
     result = load_yaml(aliases_yaml)
     expect(result.document.dig("paths", "/items", "parameters", 0)).to eq("type" => "string")
   end
 
-  it "resolves local references without changing the raw document" do
+  it "раскрывает локальные ссылки, не трогая исходный документ" do
     result = load_yaml(local_reference_yaml)
     expect(reference_versions(result)).to eq(expected_reference_versions)
   end
 
-  it "decodes JSON Pointer escape sequences in local references" do
+  it "понимает экранирование в локальных ссылках" do
     result = load_yaml(escaped_pointer_yaml)
     response = result.document.dig("paths", "/items", "get", "responses", "200")
     expect(response).to eq("description" => "ok")
   end
 
-  it "merges allOf properties and required fields" do
+  it "сливает поля и обязательность из всех веток allOf" do
     schema = load_yaml(all_of_yaml).document.dig("components", "schemas", "Combined")
     expected = { "type" => "object", "required" => %w[id amount],
                  "properties" => { "id" => { "type" => "string" },
@@ -219,7 +219,7 @@ RSpec.describe Spec::Loader do
     expect(schema).to eq(expected)
   end
 
-  it "uses the first oneOf branch and records a confirmation note" do
+  it "берёт первую ветку oneOf и оставляет пометку на проверку" do
     result = load_yaml(one_of_yaml)
     actual = [result.document.dig("components", "schemas", "Value", "type"),
               note_values(result.notes.first)]
@@ -227,14 +227,14 @@ RSpec.describe Spec::Loader do
                                      "oneOf содержит несколько вариантов; выбрана первая ветка"]])
   end
 
-  it "uses the first anyOf branch and records a confirmation note" do
+  it "берёт первую ветку anyOf и оставляет пометку на проверку" do
     result = load_yaml(any_of_yaml)
     actual = [result.document.dig("components", "schemas", "Value", "type"),
               note_values(result.notes.first).first(2)]
     expect(actual).to eq(["boolean", [:needs_confirmation, "components.schemas.Value.anyOf"]])
   end
 
-  it "keeps external references and records an unsupported note" do
+  it "оставляет внешнюю ссылку как есть и пишет о ней в отчёт" do
     result = load_yaml(external_reference_yaml)
     response = result.document.dig("paths", "/items", "get", "responses", "200")
     actual = [response, note_values(result.notes.first).first(2)]
@@ -242,47 +242,47 @@ RSpec.describe Spec::Loader do
                           [:unsupported, "paths./items.get.responses.200.$ref"]])
   end
 
-  it "raises a readable error for a reference that points nowhere" do
+  it "внятно объясняет ссылку, ведущую в никуда" do
     pattern = %r{отсутствующий узел.*#/components/responses/Missing.*paths\./items\.get}
     expect { load_yaml(missing_reference_yaml) }.to raise_error(Rsocket::ReferenceError, pattern)
   end
 
-  it "stops circular local references" do
+  it "не зацикливается на кольцевых ссылках" do
     expect { load_yaml(circular_reference_yaml) }
       .to raise_error(Rsocket::ReferenceError, /кольцевая локальная ссылка/)
   end
 
-  it "limits deeply nested local references" do
+  it "обрывает слишком длинную цепочку ссылок" do
     expect { load_yaml(deep_reference_yaml, max_reference_depth: 1) }
       .to raise_error(Rsocket::ReferenceError, /максимальная глубина локальных ссылок \(1\)/)
   end
 
-  it "reports the line for malformed YAML" do
+  it "показывает строку, на которой сломался YAML" do
     expect { load_yaml("openapi: 3.0.3\npaths:\n  broken: [\n") }
       .to raise_error(Rsocket::SpecError, /Не удалось разобрать YAML.*строка 4/)
   end
 
-  it "rejects an empty file with a readable message" do
+  it "отказывается работать с пустым файлом" do
     expect { load_yaml(" \n\t") }.to raise_error(Rsocket::SpecError, /Описание API пустое/)
   end
 
-  it "rejects a YAML document without a value as empty" do
+  it "считает пустым документ из одних комментариев" do
     expect { load_yaml("---\n# only a comment\n") }
       .to raise_error(Rsocket::SpecError, /Описание API пустое/)
   end
 
-  it "rejects a document without paths" do
+  it "отказывается работать без раздела paths" do
     expect { load_yaml("openapi: 3.0.3\ninfo: {}\n") }
       .to raise_error(Rsocket::SpecError, /нет обязательного раздела paths/)
   end
 
-  it "reports a missing file" do
+  it "сообщает, что файла нет" do
     path = File.join(Dir.tmpdir, "rsocket-missing-#{Process.pid}.yaml")
     expect { described_class.load(path) }
       .to raise_error(Rsocket::SpecError, /файл не найден.*#{Regexp.escape(path)}/)
   end
 
-  it "reports a file without read permission" do
+  it "сообщает, что файл недоступен на чтение" do
     allow(File).to receive(:read).and_raise(Errno::EACCES, "Permission denied")
     expect { described_class.load("locked.yaml") }
       .to raise_error(Rsocket::SpecError, /нет прав на чтение.*locked\.yaml/)

@@ -16,14 +16,14 @@ RSpec.describe Rsocket::Mock::Responder do
     Rsocket::Ir::Spec.new(operations: [operation])
   end
 
-  it "matches templated paths and ignores the query string", :aggregate_failures do
+  it "узнаёт путь с подстановкой и не спотыкается о строку запроса", :aggregate_failures do
     response = responder.call(method: "POST", path: "/things/abc?verbose=true")
 
     expect(response.status).to eq(202)
     expect(response.body).to eq("choice" => 1)
   end
 
-  it "returns independent copies of examples" do
+  it "отдаёт копию примера, а не сам пример" do
     responder.call(method: :post, path: "/things/abc").body["choice"] = 99
 
     expect(responder.call(method: :post, path: "/things/abc").body).to eq("choice" => 1)
