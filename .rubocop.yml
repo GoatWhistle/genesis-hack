@@ -1,0 +1,36 @@
+plugins:
+  - rubocop-rspec
+
+AllCops:
+  NewCops: enable
+  TargetRubyVersion: 3.3
+  Exclude:
+    # Сгенерированный код проверяется отдельным прогоном внутри конвейера,
+    # а не общим прогоном по репозиторию.
+    - "output/**/*"
+    # Примеры описаний API — входные данные, а не наш код.
+    - "examples/**/*"
+    - "vendor/**/*"
+
+# Классы и модули документируем там, где это что-то объясняет. Формальный
+# заголовок над каждым классом ради галочки только зашумляет файл.
+Style/Documentation:
+  Enabled: false
+
+Layout/LineLength:
+  Max: 100
+
+# Двойные кавычки везде. Причина не в красоте: в проекте много строк с
+# интерполяцией и с кириллицей, и правило «одинарные, пока не понадобятся
+# двойные» заставляет менять кавычки при каждой правке строки. Единый вид
+# убирает эту возню и совпадает с тем, как уже написан весь код в lib/.
+Style/StringLiterals:
+  EnforcedStyle: double_quotes
+
+Style/StringLiteralsInInterpolation:
+  EnforcedStyle: double_quotes
+
+Metrics/BlockLength:
+  Exclude:
+    - "spec/**/*"
+    - "*.gemspec"

@@ -1,0 +1,68 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+# Точка входа из задания организаторов. Интерфейс здесь плоский и заданный
+# снаружи, поэтому разбираем аргументы вручную, а не через Thor.
+
+require "optparse"
+
+require_relative "../lib/rsocket"
+require_relative "../lib/rsocket/cli"
+
+# Код возврата для стадии, которая ещё не собрана.
+STAGE_NOT_READY = Rsocket::CLI::STAGE_NOT_READY
+
+options = { lang: "ruby" }
+
+parser = OptionParser.new do |opts|
+  opts.banner = "Использование: integrate --spec ПУТЬ --provider ИМЯ [--lang ruby]"
+  opts.separator ""
+  opts.separator "Собирает заготовку интеграции по описанию API провайдера."
+  opts.separator ""
+  opts.on("--spec ПУТЬ", "Описание API в формате OpenAPI (обязательно)") { |v| options[:spec] = v }
+  opts.on("--provider ИМЯ", "Имя провайдера для сборки интеграции (обязательно)") do |v|
+    options[:provider] = v
+  end
+  opts.on("--lang ЯЗЫК", "Язык интеграции, поддерживается только ruby (по умолчанию ruby)") do |v|
+    options[:lang] = v
+  end
+  opts.on("-h", "--help", "Показать эту справку") { options[:help] = true }
+  opts.separator ""
+  opts.separator "Пример:"
+  opts.separator "  ./integrate --spec provider_api.yaml --provider novapay --lang ruby"
+end
+
+# Отказ по вине ввода: одна понятная строка и ненулевой код возврата.
+def refuse(message)
+  warn "Ошибка: #{message}"
+  exit 1
+end
+
+begin
+  parser.parse!(ARGV)
+rescue OptionParser::ParseError => e
+  refuse("#{e.message}. Справка: integrate --help")
+end
+
+if options[:help]
+  puts parser
+  exit 0
+end
+
+refuse("не указан обязательный --spec (путь к описанию API)") if options[:spec].nil?
+refuse("не указан обязательный --provider (имя провайдера)") if options[:provider].nil?
+
+unless options[:lang] == "ruby"
+  refuse("язык «#{options[:lang]}» не поддерживается: интеграции собираются только на ruby")
+end
+
+begin
+  Rsocket::CLI.read_spec(options[:spec])
+rescue Rsocket::Error => e
+  refuse(e.message)
+end
+
+puts "Описание прочитано и разбирается как YAML: #{options[:spec]}"
+puts "Стадия сборки интеграции ещё не собрана (задачи T1.x-T2.x)."
+puts "Выходных файлов нет, и выдумывать их нечего."
+exit STAGE_NOT_READY
