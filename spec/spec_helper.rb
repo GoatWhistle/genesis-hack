@@ -6,6 +6,9 @@ require "rsocket"
 # чужих серверов. Всё, что должно ходить по HTTP, подменяется здесь же.
 require "webmock/rspec"
 
+# Помощники тестов: доступ к описаниям из examples/ без повторов в каждом файле.
+require_relative "support/example_specs"
+
 RSpec.configure do |config|
   config.disable_monkey_patching!
 

@@ -1,131 +1,107 @@
 # frozen_string_literal: true
 
 require_relative "../dictionaries"
+require_relative "error_mapper"
+require_relative "money_detector"
 require_relative "result"
+require_relative "role_matcher"
 require_relative "roles"
 require_relative "scoring"
 require_relative "signals/lexicon"
+require_relative "signals/lifecycle"
+require_relative "signals/signature"
+require_relative "status_mapper"
+require_relative "webhook_detector"
 
 module Rsocket
   module Classify
-    # Определение смысла операций: какая из них создаёт выплату, какая читает
-    # статус, какая отменяет.
+    # Разбор смысла описания целиком: роли операций, статусы, ошибки, единицы
+    # суммы и приём уведомлений.
     #
-    # Механизм один на все роли и все признаки: каждый признак возвращает список
-    # улик с весами, веса складываются, пороги решают, насколько мы уверены.
-    # Ни одной роли и ни одного слова провайдера в этом файле нет и быть не
-    # должно — они приходят из словарей.
+    # Каждый вывод сопровождается признаками, записанными словами. Мы нигде не
+    # печатаем «уверенность 0.87»: инженер читает, что именно сработало, и сам
+    # решает, согласен ли он. Это же и ответ на вопрос «а если инструмент
+    # ошибётся» — ошибётся заметно и объяснимо.
     class Classifier
       # Признаки складываются, а не выбирают друг друга: три независимых способа
       # догадаться сильнее одного точного.
-      DEFAULT_SIGNALS = [Signals::Lexicon].freeze
+      DEFAULT_SIGNALS = [Signals::Lexicon, Signals::Signature, Signals::Lifecycle].freeze
 
       def self.call(spec, **)
         new(spec, **).call
       end
 
       def initialize(spec, dictionaries: Rsocket::Dictionaries.default, signals: DEFAULT_SIGNALS)
-        @spec = spec
-        @roles = Roles.default(dictionaries)
+        @context = Context.new(
+          spec: spec, dictionaries: dictionaries, roles: Roles.default(dictionaries)
+        )
+        @signals = signals.map { |signal| signal.new(@context) }
         @scoring = Scoring.new(dictionaries.weights)
-        context = Context.new(spec: spec, dictionaries: dictionaries, roles: @roles)
-        @signals = signals.map { |signal| signal.new(context) }
       end
 
       def call
-        ranked = ranked_candidates
-        assigned = assign(ranked)
-        Result.new(
-          roles: assigned.to_h { |assignment| [assignment.role, assignment] },
-          notes: notes(ranked, assigned)
-        )
+        matched = RoleMatcher.new(@context, @signals, @scoring).call
+        statuses = StatusMapper.new(@context).call
+        errors = ErrorMapper.new(@context).call
+        money = MoneyDetector.new(@context).call
+        webhook = WebhookDetector.new(@context).call
+        build(matched, statuses, errors, money, webhook)
       end
 
       private
 
-      # Порядок перебора задан целиком данными, без обращения к случайности и
-      # без зависимости от порядка ключей: одинаковый вход обязан давать
-      # одинаковый результат, это требование хакатона и здравого смысла.
-      def ranked_candidates
-        candidates.sort_by do |candidate|
-          [-candidate.score, candidate.operation.path,
-           candidate.operation.http_method.to_s, candidate.role.to_s]
-        end
-      end
-
-      def candidates
-        @spec.operations.flat_map do |operation|
-          @roles.filter_map { |role| candidate(operation, role) }
-        end
-      end
-
-      def candidate(operation, role)
-        evidence = @signals.flat_map { |signal| signal.evidence(operation, role) }
-        return unless @scoring.considered?(evidence)
-
-        RoleAssignment.new(
-          role: role.id, operation: operation, score: @scoring.score(evidence),
-          verdict: @scoring.verdict(evidence), evidence: evidence
+      def build(matched, statuses, errors, money, webhook)
+        Result.new(
+          roles: matched.assignments.to_h { |item| [item.role, item] },
+          statuses: statuses, errors: errors, money: money, webhook: webhook,
+          notes: matched.notes + gaps(statuses, errors, money, webhook)
         )
       end
 
-      # Роль достаётся операции с наибольшей оценкой, и одна операция занимает
-      # не больше одной роли: описание, где создание выплаты одновременно
-      # оказалось её отменой, — это не результат, а ошибка.
-      def assign(ranked)
-        taken_roles = []
-        taken_operations = []
-        ranked.select do |candidate|
-          key = operation_key(candidate.operation)
-          next false if taken_roles.include?(candidate.role) || taken_operations.include?(key)
-
-          taken_roles << candidate.role
-          taken_operations << key
-        end
+      # Всё, чего мы не поняли, обязано быть названо вслух. Молча пропущенный
+      # статус или неопознанный класс ошибки — это тихая ошибка в бою.
+      def gaps(statuses, errors, money, webhook)
+        [
+          untranslated_statuses(statuses), unclassified_errors(errors),
+          unknown_money(money), unsigned_webhook(webhook)
+        ].compact
       end
 
-      def operation_key(operation) = [operation.http_method, operation.path]
+      def untranslated_statuses(statuses)
+        values = statuses.select { |status| status.canonical.nil? }.map(&:provider_value)
+        return if values.empty?
 
-      def notes(ranked, assigned)
-        conflict_notes(ranked, assigned) + missing_role_notes(assigned)
+        note("components.schemas",
+             "Статусы провайдера без перевода: #{values.join(", ")}. Допишите перевод " \
+             "в файле догадок, иначе готовый код не поймёт эти значения")
       end
 
-      # Проигравший кандидат обязан попасть в отчёт: именно здесь человек чаще
-      # всего и нужен, а молчание выглядит как уверенность, которой у нас нет.
-      def conflict_notes(ranked, assigned)
-        winners = assigned.to_h { |assignment| [assignment.role, assignment] }
-        (ranked - assigned).filter_map do |loser|
-          winner = winners[loser.role]
-          next if winner.nil?
+      def unclassified_errors(errors)
+        codes = errors.select { |error| error.klass.nil? }.filter_map(&:provider_code)
+        return if codes.empty?
 
-          conflict_note(loser, winner)
-        end
+        note("components.schemas",
+             "Коды ошибок без класса: #{codes.join(", ")}. Пока для них не решено, " \
+             "стоит ли повторять запрос")
       end
 
-      def conflict_note(loser, winner)
-        Rsocket::Ir::Note.new(
-          level: :needs_confirmation, where: where(loser.operation),
-          message: "На роль «#{@roles.title(loser.role)}» претендовали две операции: " \
-                   "#{describe(winner)} — выбрана, #{describe(loser)} — отклонена. " \
-                   "Если выбор неверен, поправьте роль в файле догадок"
-        )
+      def unknown_money(money)
+        return if money.nil? || !money.unit.nil?
+
+        note("paths", "Единицы суммы не определены. Это самое опасное место интеграции: " \
+                      "укажите их вручную в файле догадок")
       end
 
-      def missing_role_notes(assigned)
-        (@roles.ids - assigned.map(&:role)).map do |role|
-          Rsocket::Ir::Note.new(
-            level: :info, where: "paths",
-            message: "Роль «#{@roles.title(role)}» не определена ни для одной операции: " \
-                     "либо провайдер её не поддерживает, либо признаков не хватило"
-          )
-        end
+      def unsigned_webhook(webhook)
+        return if webhook.nil? || (webhook.algorithm != :unknown && !webhook.signature_header.nil?)
+
+        note("paths", "Уведомления приходят, но способ подписи из описания не восстановлен. " \
+                      "Проверять подпись наугад нельзя — задайте алгоритм вручную")
       end
 
-      def describe(candidate)
-        "#{where(candidate.operation)} (оценка #{format("%.1f", candidate.score)})"
+      def note(where, message)
+        Rsocket::Ir::Note.new(level: :needs_confirmation, where: where, message: message)
       end
-
-      def where(operation) = "#{operation.http_method.to_s.upcase} #{operation.path}"
     end
   end
 end

@@ -16,7 +16,7 @@ module Rsocket
 
     # Имя файла = имя метода. Появится новый словарь — достаточно дописать его
     # сюда и положить файл рядом.
-    FILES = %i[operations statuses errors money fields weights].freeze
+    FILES = %i[operations statuses errors money fields webhook weights].freeze
 
     # Общий экземпляр на прогон: файлы одни и те же, читать их по разу на
     # каждую операцию незачем.

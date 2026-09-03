@@ -1,7 +1,10 @@
 # frozen_string_literal: true
 
+require "fileutils"
 require "open3"
 require "tempfile"
+require "tmpdir"
+require "yaml"
 
 require "rsocket/cli"
 
@@ -24,6 +27,22 @@ RSpec.describe Rsocket::CLI do
     file.write("openapi: 3.0.0\npaths:\n  - [не закрытая скобка\n")
     file.close
     file.path
+  end
+
+  # Результаты разбора пишутся во временный каталог: тесты не должны трогать
+  # output/ в репозитории.
+  let(:out_dir) { Dir.mktmpdir("rsocket-cli") }
+
+  after { FileUtils.rm_rf(out_dir) }
+
+  # Правка человека: первой роли назначается операция второй — так проверяется
+  # именно уважение к правке, а не обработка опечатки.
+  def edit_manifest
+    path = File.join(out_dir, Rsocket::CLI::MANIFEST_NAME)
+    document = YAML.safe_load_file(path)
+    first, second = document["roles"].keys.first(2)
+    document["roles"][first]["operation"] = document["roles"][second]["operation"]
+    File.write(path, YAML.dump(document))
   end
 
   # Возвращает [вывод, код возврата]. Потоки склеены: пользователь видит их
@@ -89,11 +108,38 @@ RSpec.describe Rsocket::CLI do
       expect(backtrace?(output)).to be(false)
     end
 
-    it "не молчит про несобранную стадию, когда аргументы в порядке", :aggregate_failures do
-      output, code = run("rsocket", "analyze", "--spec", sample_spec)
+    it "печатает отчёт о разборе и уходит с нулевым кодом", :aggregate_failures do
+      output, code = run("rsocket", "analyze", "--spec", sample_spec, "--out", out_dir)
 
-      expect(output).to include("ещё не собрана", "T1.1-T1.8")
-      expect(code).to eq(described_class::STAGE_NOT_READY)
+      expect(output).to include("Понято уверенно", "Требует подтверждения", "Не поддержано")
+      expect(code).to eq(0)
+    end
+
+    it "пишет файл догадок в указанный каталог", :aggregate_failures do
+      run("rsocket", "analyze", "--spec", sample_spec, "--out", out_dir)
+      written = File.read(File.join(out_dir, described_class::MANIFEST_NAME))
+
+      expect(written).to include("roles:", "statuses:", "money:")
+      expect(written).to start_with("# Что RSOCKET понял")
+    end
+
+    # Прогон на месте прошлого не должен переубеждать человека: если он поправил
+    # роль, следующий запуск обязан её сохранить.
+    it "уважает правку человека в файле догадок" do
+      run("rsocket", "analyze", "--spec", sample_spec, "--out", out_dir)
+      edit_manifest
+      output, = run("rsocket", "analyze", "--spec", sample_spec, "--out", out_dir)
+
+      expect(output).to include("задана человеком")
+    end
+
+    it "разбирает все описания из examples/", :aggregate_failures do
+      Dir[File.join(Rsocket.root, Rsocket::Doctor::SAMPLE_SPEC_GLOB)].each do |path|
+        output, code = run("rsocket", "analyze", "--spec", path, "--out", out_dir)
+
+        expect(code).to eq(0), "не разобралось: #{path}"
+        expect(output).to include("Понято уверенно")
+      end
     end
 
     it "требует --spec", :aggregate_failures do

@@ -5,9 +5,9 @@ require_relative "../dictionaries"
 module Rsocket
   module Classify
     # Каноническая роль операции: что она делает с точки зрения интеграции.
-    Role = Data.define(:id, :title, :strong, :weak, :tags) do
+    Role = Data.define(:id, :title, :strong, :weak, :tags, :rules) do
       def initialize(**attributes)
-        defaults = { strong: [], weak: [], tags: [] }
+        defaults = { strong: [], weak: [], tags: [], rules: [] }
         super(**defaults.merge(attributes))
       end
     end
@@ -41,13 +41,20 @@ module Rsocket
       def build(source)
         raise Rsocket::Error, "словарь ролей пуст" if source.nil? || source.empty?
 
-        source.map do |id, definition|
-          Role.new(
-            id: id.to_sym, title: definition["title"] || id.to_s,
-            strong: Array(definition["strong"]), weak: Array(definition["weak"]),
-            tags: Array(definition["tags"])
-          )
-        end
+        source.map { |id, definition| role(id, definition || {}) }
+      end
+
+      def role(id, definition)
+        Role.new(
+          id: id.to_sym, title: definition["title"] || id.to_s, **words(definition)
+        )
+      end
+
+      def words(definition)
+        {
+          strong: Array(definition["strong"]), weak: Array(definition["weak"]),
+          tags: Array(definition["tags"]), rules: Array(definition["rules"]).map(&:to_sym)
+        }
       end
     end
   end

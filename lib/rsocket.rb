@@ -6,6 +6,8 @@ require_relative "rsocket/ir"
 require_relative "rsocket/spec/loader"
 require_relative "rsocket/spec/normalizer"
 require_relative "rsocket/classify"
+require_relative "rsocket/manifest"
+require_relative "rsocket/report"
 require_relative "rsocket/mock"
 
 # RSOCKET — генератор интеграций с платёжными провайдерами.

@@ -25,7 +25,7 @@ module Rsocket
     # Ошибка провайдера и то, как с ней обращаться вызывающему коду.
     ErrorMapping = Data.define(:http_code, :provider_code, :klass, :evidence) do
       def initialize(**attributes)
-        defaults = { provider_code: nil, klass: nil, evidence: [] }
+        defaults = { http_code: nil, provider_code: nil, klass: nil, evidence: [] }
         super(**defaults.merge(attributes))
       end
     end

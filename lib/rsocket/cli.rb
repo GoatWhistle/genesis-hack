@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "fileutils"
+
 require "thor"
 
 require_relative "../rsocket"
@@ -14,6 +16,9 @@ module Rsocket
     # Код возврата для стадии, которая ещё не собрана. Отдельный от 1, чтобы
     # «не готово» не путалось с «сломано».
     STAGE_NOT_READY = 2
+
+    # Имя файла догадок одно на все команды: его пишет analyze, читает generate.
+    MANIFEST_NAME = "mapping.yml"
 
     def self.exit_on_failure?
       true
@@ -56,8 +61,14 @@ module Rsocket
     method_option :spec, type: :string, required: true, desc: "Путь к описанию API (OpenAPI)"
     method_option :out, type: :string, default: "output", desc: "Каталог для результатов разбора"
     def analyze
-      spec_ready(options[:spec])
-      stage_not_ready("разбор описания", "T1.1-T1.8")
+      spec = Rsocket::Spec::Normalizer.normalize(spec_ready(options[:spec]))
+      manifest = File.join(prepare_out(options[:out]), MANIFEST_NAME)
+      result = with_overrides(Rsocket::Classify::Classifier.call(spec), spec, manifest)
+      report(spec, result)
+      Rsocket::Manifest::Writer.new(result, spec).write(manifest)
+      say ""
+      say "Догадки записаны в #{manifest}. Поправьте, что считаете неверным, — " \
+          "правка переживёт следующий прогон."
     end
 
     desc "mock", "Поднять поддельный сервер провайдера по описанию"
@@ -85,6 +96,26 @@ module Rsocket
     end
 
     private
+
+    # Правка человека важнее нашей догадки, поэтому файл сначала читается и
+    # только потом переписывается: прогон на месте прошлого не затирает решения,
+    # принятые руками.
+    def with_overrides(result, spec, manifest)
+      reader = Rsocket::Manifest::Reader.load(manifest)
+      return result if reader.nil?
+
+      say "Учтены правки из #{manifest}"
+      reader.apply(result, spec)
+    end
+
+    def report(spec, result)
+      Rsocket::Report::Terminal.new(Rsocket::Report::Report.new(spec, result)).print
+    end
+
+    def prepare_out(path)
+      FileUtils.mkdir_p(path)
+      path
+    end
 
     # Единственное, что заготовка команды умеет по-настоящему: убедиться, что
     # ей дали читаемое описание. Об этом и сообщаем.

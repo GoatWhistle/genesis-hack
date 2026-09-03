@@ -8,6 +8,9 @@
 # weak   — слова предметной области: встречаются сразу у нескольких ролей
 #          («payout», «transfer»), поэтому дают меньший вес.
 # tags   — слова, которые ищем в тегах и названиях разделов.
+# rules  — правила о форме запроса и о связях по идентификаторам, которые
+#          подтверждают эту роль. Сами правила живут в коде (это логика), а
+#          привязка правила к роли — здесь (это знание).
 #
 # Слова длиной от четырёх букв сравниваются по вхождению, поэтому в списках
 # лежат основы: «созда» покрывает «создать» и «создание», «payout» — «payouts».
@@ -15,6 +18,7 @@
 
 create_payout:
   title: создание выплаты
+  rules: [money_and_recipient_in_body, issues_identifier]
   strong:
     [create, make, submit, register, initiate, execute, issue, send, new, post, start,
      созда, отправ, сформир, провед]
@@ -25,6 +29,7 @@ create_payout:
 
 fetch_status:
   title: запрос статуса
+  rules: [identifier_in_path_status_in_response, reads_without_body, consumes_identifier]
   strong:
     [status, state, info, details, retrieve, lookup, fetch, show, inquiry, poll, check,
      статус, состояни, сведени, узнать, получить]
@@ -35,24 +40,28 @@ fetch_status:
 
 cancel:
   title: отмена
+  rules: [empty_body_on_subresource, consumes_identifier]
   strong: [cancel, void, revoke, abort, terminate, stop, отмен, отозв, остано, прекра]
   weak: [payout, payment, transfer, transaction, order, выплат, перевод, платеж, платёж]
   tags: [payout, payment, transfer, выплат, перевод]
 
 refund:
   title: возврат средств
+  rules: [money_with_source_reference]
   strong: [refund, reversal, reverse, chargeback, payback, возврат, вернуть, верну, возмещ]
   weak: [return, payout, payment, transfer, transaction, order, выплат, перевод, платеж]
   tags: [refund, return, возврат]
 
 balance:
   title: баланс
+  rules: [balance_in_response]
   strong: [balance, funds, wallet, баланс, остат, средств]
   weak: [account, available, limit, provider, счет, счёт, доступн]
   tags: [balance, account, wallet, баланс, счет, счёт]
 
 webhook:
   title: приём уведомлений
+  rules: [open_method_with_event_and_status]
   strong:
     [webhook, callback, notification, notify, hook, push, event,
      уведомл, оповещ, вебхук, колбэк, событи]
