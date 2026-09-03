@@ -17,6 +17,18 @@ RSpec.describe Rsocket::Classify::MoneyDetector do
     expect(decision("swiftpay").unit).to eq(:decimal)
   end
 
+  # Настоящая ловушка из описания NordBank: сумма передаётся строкой «1500.00», а
+  # в описании поля стоит слово «копейки». Выбор по первому совпавшему слову дал
+  # бы здесь минимальные единицы и перевод в сто раз больше нужного.
+  it "не принимает рубли за копейки из-за слова в описании" do
+    expect(decision("nordbank").unit).to eq(:decimal)
+  end
+
+  it "объясняет вывод строковой записью суммы" do
+    expect(decision("nordbank").evidence.map(&:detail))
+      .to include(a_string_matching(/сумма записана строкой с дробной частью/))
+  end
+
   it "находит сумму внутри вложенного объекта" do
     expect(decision("kassabox").field_path).to eq("sum.value")
   end

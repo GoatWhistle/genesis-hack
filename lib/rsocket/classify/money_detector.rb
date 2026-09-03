@@ -51,7 +51,7 @@ module Rsocket
       def amount?(field) = !@meanings.find([field], :amount, deep: false).nil?
 
       def signals(field)
-        [words_signal(field), type_signal(field), bound_signal(field)].compact
+        [*words_signals(field), type_signal(field), bound_signal(field)].compact
       end
 
       def decide(found)
@@ -72,22 +72,47 @@ module Rsocket
 
       def tie?(totals, best) = totals.count { |_unit, weight| weight == best.last } > 1
 
-      def words_signal(field)
+      # Слова обеих сторон собираются вместе, а не по первому попаданию: описание
+      # «рубли и копейки через точку» содержит и то, и другое, и выбор по первому
+      # совпадению дал бы копейки там, где на самом деле дробное число.
+      def words_signals(field)
         text = field.description.to_s.downcase
-        return if text.empty?
+        return [] if text.empty?
 
-        minor = Array(@dictionary["minor_words"]).find { |word| text.include?(word) }
-        return signal(:minor, "words_in_description", "описание поля говорит «#{minor}»") if minor
+        [words_signal(text, :minor, "minor_words"), words_signal(text, :decimal, "decimal_words")]
+      end
 
-        major = Array(@dictionary["decimal_words"]).find { |word| text.include?(word) }
-        signal(:decimal, "words_in_description", "описание поля говорит «#{major}»") if major
+      def words_signal(text, unit, list)
+        word = Array(@dictionary[list]).find { |candidate| text.include?(candidate) }
+        return if word.nil?
+
+        signal(unit, "words_in_description", "описание поля говорит «#{word}»")
       end
 
       def type_signal(field)
         return signal(:minor, "integer_type", "поле целочисленное") if integer?(field)
+        return decimal_string_signal(field) if decimal_string?(field)
         return unless FRACTIONAL_TYPES.include?(field.type.to_s)
 
         signal(:decimal, "fractional_type", "поле дробное (#{field.type}#{format_of(field)})")
+      end
+
+      # Сумма строкой с точкой и копейками после неё — это рубли, как бы ни было
+      # написано в описании: 1500.00 не бывает записью в минимальных единицах.
+      def decimal_string?(field)
+        return false unless field.type.to_s == "string"
+
+        field.pattern.to_s.include?("\\.") || field.example.to_s.match?(/\A\d+\.\d+\z/)
+      end
+
+      def decimal_string_signal(field)
+        where = if field.pattern.to_s.empty?
+                  "пример «#{field.example}»"
+                else
+                  "шаблон «#{field.pattern}»"
+                end
+        signal(:decimal, "decimal_string_format",
+               "сумма записана строкой с дробной частью: #{where}")
       end
 
       # Целое поле с крупным минимумом или примером: тысяча рублей никогда не

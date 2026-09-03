@@ -119,7 +119,7 @@ module Rsocket
         known = info.algorithm != :unknown && !info.signature_header.nil?
         return [] if (verdict == :confident) != known
 
-        [Finding.new(title: "приём уведомлений → #{where(info.operation)}",
+        [Finding.new(title: "проверка подписи уведомлений → #{where(info.operation)}",
                      details: webhook_details(info))]
       end
 

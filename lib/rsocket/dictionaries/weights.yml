@@ -38,6 +38,7 @@ money:
   integer_with_large_bound: 1.5
   integer_type: 0.5
   fractional_type: 2.0
+  decimal_string_format: 2.0
   # Ниже этого веса вывод не делается: «поле целочисленное» само по себе не
   # доказывает копейки, а ошибка в единицах суммы стоит дороже любой другой.
   minimum_weight: 1.5
