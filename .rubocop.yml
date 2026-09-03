@@ -30,6 +30,17 @@ Style/StringLiterals:
 Style/StringLiteralsInInterpolation:
   EnforcedStyle: double_quotes
 
+# Названия проверок читает человек, и читает он их по-русски. Правило само по
+# себе полезное — контекст должен называть условие, а не предмет, — поэтому не
+# выключаем его, а перечисляем те же предлоги на нашем языке.
+RSpec/ContextWording:
+  Prefixes:
+    - когда
+    - с
+    - со
+    - без
+    - на
+
 Metrics/BlockLength:
   Exclude:
     - "spec/**/*"

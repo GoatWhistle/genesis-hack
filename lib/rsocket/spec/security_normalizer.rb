@@ -26,6 +26,22 @@ module Rsocket
         Array(security).flat_map { |requirement| requirement.is_a?(Hash) ? requirement.keys : [] }
       end
 
+      # Пустой список требований у операции по договорённости означает «метод
+      # намеренно открыт». Когда в описании нет ни одной схемы авторизации,
+      # такой же пустой список означает совсем другое — что про авторизацию
+      # просто не написали. Молча выдавать это за открытый API нельзя.
+      def note_undeclared_authentication(operations)
+        return unless raw_schemes.empty?
+        return if operations.any? { |operation| operation.security.any? }
+
+        @notes << Rsocket::Ir::Note.new(
+          level: :needs_confirmation,
+          where: "components.securitySchemes",
+          message: "В описании нет ни одной схемы авторизации: все операции выглядят " \
+                   "открытыми. Если ключ или токен всё же нужен, задайте его вручную"
+        )
+      end
+
       private
 
       def raw_schemes

@@ -3,19 +3,19 @@
 require "spec_helper"
 
 RSpec.describe Rsocket::Mock::PatternExample do
-  it "supports zero-width lookahead without putting it into the value" do
+  it "понимает опережающую проверку и не тащит её в значение" do
     value = described_class.new("^(?=ABC)ABC$").call
 
     expect(value).to eq("ABC")
   end
 
-  it "never returns a value that violates the pattern" do
+  it "не выдаёт значение, не подходящее под pattern" do
     generate = -> { described_class.new("^(a)\\1$").call }
 
     expect(&generate).to raise_error(Rsocket::Mock::ExampleGenerationError, /pattern/)
   end
 
-  it "reports malformed regular expressions clearly" do
+  it "внятно сообщает о сломанном регулярном выражении" do
     generate = -> { described_class.new("[").call }
 
     expect(&generate).to raise_error(Rsocket::Mock::ExampleGenerationError, /Некорректный pattern/)

@@ -81,6 +81,8 @@ bundle exec bin/rsocket doctor
 
 ## Документы
 
+- [docs/architecture/input.md](docs/architecture/input.md) — как устроен вход: путь от
+  файла с описанием API до внутренней модели, со схемой и таблицей покрытия.
 - [docs/context/90-build-plan.md](docs/context/90-build-plan.md) — план сборки: что
   делаем, в каком порядке, по каким правилам.
 - [docs/context/95-tasks.md](docs/context/95-tasks.md) — задачи и договорённость о том,
