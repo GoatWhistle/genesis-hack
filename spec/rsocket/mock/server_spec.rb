@@ -94,6 +94,21 @@ RSpec.describe Rsocket::Mock::Server do
       expect(generated_body.fetch("short").length).to be <= 3
       expect(generated_body.fetch("items")).to eq([false])
     end
+
+    context "when a pattern cannot be generated safely" do
+      let(:generated_fields) do
+        [field("reference", type: "string", pattern: "^(a)\\1$")]
+      end
+
+      it "returns a readable JSON error instead of an invalid example" do
+        response = Rack::MockRequest.new(server).get("/generated/42")
+        error = JSON.parse(response.body).fetch("error")
+
+        expect([response.status, error.fetch("code"), error.fetch("message")]).to match(
+          [500, "example_generation_failed", /pattern/]
+        )
+      end
+    end
   end
 
   describe "response headers" do

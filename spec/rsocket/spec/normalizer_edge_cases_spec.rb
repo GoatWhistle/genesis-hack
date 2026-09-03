@@ -22,13 +22,27 @@ RSpec.describe Rsocket::Spec::Normalizer do
 
   def unknown_auth_summary(result)
     scheme = result.security_schemes.first
-    note = result.notes.first
+    note = result.notes.find { |item| item.where.start_with?("components.securitySchemes") }
     [scheme.kind, scheme.description, note.level, note.where, note.message]
   end
 
   def alternative_auth_summary(result)
     schemes = result.security_schemes.map { |scheme| [scheme.id, scheme.kind] }
     [schemes, result.operations.first.security]
+  end
+
+  def expected_coverage_notes
+    [
+      coverage_note("Для операции не описано ни одного примера; мок соберёт ответ по схеме"),
+      coverage_note(
+        "Для операции не описаны ответы с ошибками; " \
+        "обработку отказов нужно проверить вручную"
+      )
+    ]
+  end
+
+  def coverage_note(message)
+    { level: :needs_confirmation, where: "paths./transfers.post.responses", message: message }
   end
 
   def no_operations_yaml
@@ -154,6 +168,12 @@ RSpec.describe Rsocket::Spec::Normalizer do
     actual = [operation.request_examples, operation.responses.keys,
               operation.responses.fetch(200).examples]
     expect(actual).to eq([{}, [200], {}])
+  end
+
+  it "explains missing examples and documented errors" do
+    notes = normalize_yaml(no_examples_or_errors_yaml).notes.map(&:to_h)
+
+    expect(notes).to match_array(expected_coverage_notes)
   end
 
   it "keeps query-only input separate from a missing request body" do

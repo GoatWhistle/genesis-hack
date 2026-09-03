@@ -4,6 +4,17 @@ module Rsocket
   module Mock
     Response = Data.define(:status, :headers, :body)
 
+    class ExampleGenerationError < Rsocket::Error; end
+
+    PATTERN_FALLBACKS = ["", "0", "a", "test", "example", "00000000000000000000"].freeze
+    PATTERN_CLASS_CHARACTERS = [
+      [->(text) { text.start_with?("^") }, "a"],
+      [->(text) { text.include?("\\d") || text.match?(/0-9/) }, "0"],
+      [->(text) { text.match?(/A-Z/) }, "A"],
+      [->(text) { text.include?("\\w") || text.match?(/a-z/i) }, "a"]
+    ].freeze
+    private_constant :PATTERN_FALLBACKS, :PATTERN_CLASS_CHARACTERS
+
     # Chooses deterministic responses for operations in the normalized API description.
     class Responder
       Route = Data.define(:verb, :pattern, :operation)
@@ -161,14 +172,6 @@ module Rsocket
 
     # Produces a minimal value for the common regular-expression subset used by API schemas.
     class PatternExample
-      FALLBACKS = ["", "0", "a", "test", "example", "00000000000000000000"].freeze
-      CLASS_CHARACTERS = [
-        [->(text) { text.start_with?("^") }, "a"],
-        [->(text) { text.include?("\\d") || text.match?(/0-9/) }, "0"],
-        [->(text) { text.match?(/A-Z/) }, "A"],
-        [->(text) { text.include?("\\w") || text.match?(/a-z/i) }, "a"]
-      ].freeze
-
       def initialize(source)
         @source = source
         @index = 0
@@ -179,9 +182,12 @@ module Rsocket
         candidate = sequence
         return candidate if regexp.match?(candidate)
 
-        FALLBACKS.find { |value| regexp.match?(value) } || candidate
-      rescue RegexpError
-        "example"
+        fallback = PATTERN_FALLBACKS.find { |value| regexp.match?(value) }
+        return fallback if fallback
+
+        raise ExampleGenerationError, failure_message
+      rescue RegexpError => e
+        raise ExampleGenerationError, "Некорректный pattern #{@source.inspect}: #{e.message}"
       end
 
       private
@@ -217,17 +223,26 @@ module Rsocket
       end
 
       def class_character(content)
-        match = CLASS_CHARACTERS.find { |predicate, _value| predicate.call(content) }
+        match = PATTERN_CLASS_CHARACTERS.find { |predicate, _value| predicate.call(content) }
         return match.last if match
 
         content.delete_prefix("\\")[0] || "a"
       end
 
       def group
+        return assertion_group if %w[?= ?!].include?(@source[@index, 2])
+
         @index += 2 if @source[@index, 2] == "?:"
         value = sequence(stop: ["|", ")"])
         skip_group_remainder
         value
+      end
+
+      def assertion_group
+        @index += 2
+        sequence(stop: [")"])
+        take if current == ")"
+        ""
       end
 
       def skip_group_remainder
@@ -272,6 +287,10 @@ module Rsocket
 
       def done?
         @index >= @source.length
+      end
+
+      def failure_message
+        "Не удалось собрать строку, соответствующую pattern #{@source.inspect}"
       end
     end
   end

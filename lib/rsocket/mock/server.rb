@@ -32,9 +32,9 @@ module Rsocket
           method: environment.fetch("REQUEST_METHOD"),
           path: environment.fetch("PATH_INFO")
         )
-        body = JSON.generate(response.body)
-        headers = response.headers.merge("content-type" => "application/json; charset=utf-8")
-        [response.status, headers, [body]]
+        render_response(response)
+      rescue ExampleGenerationError => e
+        render_response(generation_error(e))
       end
 
       def start(port: 4010, host: "127.0.0.1")
@@ -60,6 +60,20 @@ module Rsocket
       end
 
       private
+
+      def render_response(response)
+        body = JSON.generate(response.body)
+        headers = response.headers.merge("content-type" => "application/json; charset=utf-8")
+        [response.status, headers, [body]]
+      end
+
+      def generation_error(error)
+        Response.new(
+          status: 500,
+          headers: {},
+          body: { "error" => { "code" => "example_generation_failed", "message" => error.message } }
+        )
+      end
 
       def corrupt(signature)
         replacement = signature.start_with?("0") ? "1" : "0"

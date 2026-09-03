@@ -2,6 +2,7 @@
 
 require_relative "../errors"
 require_relative "../ir"
+require_relative "coverage_notes"
 require_relative "operation_normalizer"
 require_relative "schema_normalizer"
 require_relative "security_normalizer"
@@ -26,6 +27,7 @@ module Rsocket
         security = SecurityNormalizer.new(@document, @notes)
         operations = OperationNormalizer.new(@document, SchemaNormalizer.new, security).operations
         ensure_operations(operations)
+        CoverageNotes.new(operations, @notes).call
         build_spec(operations, security.schemes)
       end
 
