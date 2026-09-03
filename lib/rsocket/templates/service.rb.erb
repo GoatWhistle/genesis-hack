@@ -1,0 +1,368 @@
+# frozen_string_literal: true
+
+require "bigdecimal"
+<%- if webhook? -%>
+require "openssl"
+<%- end -%>
+
+# Интеграция с <%= title %><%= version ? ", версия описания #{version}" : "" %>.
+#
+# Собрано RSOCKET по описанию API провайдера. Файл повторяет строение
+# образца, вычитанного руками: модуль Contract — всё, что взято из
+# спецификации, модуль Payload — сборка тела запроса, сам класс — четыре
+# метода контракта заказчика.
+#
+# Что здесь может быть не так и что стоит проверить глазами, перечислено в
+# INTEGRATION.md. Места, которые инструмент заполнить не мог, помечены
+# словами ЗАПОЛНИТЬ ВРУЧНУЮ.
+class Provider
+  class <%= class_name %> < BaseService
+    module Contract
+      BASE_URL = ENV.fetch("<%= base_url_env %>", "<%= base_url %>")
+
+      # ЗАПОЛНИТЬ ВРУЧНУЮ. Ключей в описании API нет и быть не может —
+      # провайдер выдаёт их при подключении. Читаются в момент вызова, а не
+      # при загрузке файла, иначе значение застынет на старте процесса.
+      API_KEY_ENV = "<%= api_key_env %>"
+<%- if webhook? -%>
+      SECRET_ENV = "<%= secret_env %>"
+<%- end -%>
+
+      AUTH_HEADER = "<%= auth[:header] %>"
+<%- if bearer? -%>
+      AUTH_PREFIX = "<%= auth[:prefix] %>"
+<%- end -%>
+<%- if idempotency_header -%>
+      IDEMPOTENCY_HEADER = "<%= idempotency_header %>"
+<%- end -%>
+<%- if webhook? -%>
+      SIGNATURE_HEADER = "<%= signature[:header] %>"
+      SIGNATURE_ALGORITHM = "<%= signature[:algorithm] %>"
+      EVENT_FIELD = "<%= webhook_event_field %>"
+      WEBHOOK_ID_FIELD = "<%= webhook_id_field %>"
+<%- end -%>
+
+<%- if create? -%>
+      CREATE_PATH = "<%= create_path %>"
+<%- end -%>
+<%- if status? -%>
+      STATUS_PATH = "<%= status_path %>"
+<%- end -%>
+<%- if cancel? -%>
+      CANCEL_PATH = "<%= cancel_path %>"
+<%- end -%>
+<%- if duplicate_status -%>
+
+      # Ответ <%= duplicate_status %> — повтор по ключу идемпотентности: провайдер
+      # возвращает ту же выплату. Разбирается наравне с успешным созданием.
+      DUPLICATE_STATUS = <%= duplicate_status %>
+<%- end -%>
+
+      # Где в ответе провайдера лежат идентификатор, статус и код ошибки.
+      # Пути полные, поэтому конверт вокруг ответа разбирается сам собой.
+      RESPONSE_ID_PATH = <%= string_array(response_id_path) %>.freeze
+      RESPONSE_STATUS_PATH = <%= string_array(response_status_path) %>.freeze
+      ERROR_CODE_PATH = <%= string_array(error_code_path) %>.freeze
+
+<%- if minor_units -%>
+      # Сумма приходит в основных единицах, провайдер ждёт минорные.
+      MINOR_UNIT_FACTOR = <%= Rsocket::Generate::Translation::MINOR_UNIT_FACTOR %>
+<%- end -%>
+<%- if minimum_amount -%>
+      # Минимальная сумма в единицах провайдера, из ограничения minimum.
+      MINIMUM_AMOUNT = <%= minimum_amount %>
+<%- end -%>
+<%- if required_requisite_fields.any? -%>
+      # Реквизиты получателя, объявленные обязательными в описании API.
+      REQUIRED_REQUISITE_FIELDS = <%= string_array(required_requisite_fields) %>.freeze
+<%- end -%>
+<%- if payout_method? -%>
+      # Способы выплаты, объявленные провайдером в перечислении поля
+      # <%= payout_method_field %>. Ими и управляет request_method.
+      PAYOUT_METHODS = <%= string_array(payout_methods) %>.freeze
+<%- end -%>
+
+      # Статус провайдера → статус операции у заказчика.
+<%- if status_map.empty? -%>
+      # ЗАПОЛНИТЬ ВРУЧНУЮ: статусы провайдера определить не удалось. Пока
+      # карта пуста, любая операция остаётся в работе — сервис не признает
+      # выплату успешной по незнакомому слову.
+<%- end -%>
+      STATUS_MAP = {
+<%= render_status_map(8) %>
+      }.freeze
+
+      # Код ответа → наш код ошибки, статус отказа и что с ошибкой делать.
+      ERROR_MAP = {
+<%= render_error_map(8) %>
+      }.freeze
+
+      UNKNOWN_ERROR = { code: "provider.unknown_error", status: :bad_gateway,
+                        action: :retry_alert }.freeze
+<%- if webhook? -%>
+
+      # Событие уведомления → статус операции у заказчика.
+      EVENT_MAP = {
+<%= render_event_map(8) %>
+      }.freeze
+<%- end -%>
+    end
+
+    # Сборка тела запроса из операции заказчика.
+<%- if skipped_optional.any? -%>
+    #
+    # Не отправляются необязательные поля, которые не удалось связать с
+    # операцией: <%= skipped_optional.join(", ") %>. Если провайдер их
+    # ждёт — допишите руками.
+<%- end -%>
+    module Payload
+      include Contract
+
+      private
+
+      def build_request_payload(operation, <%= request_method_used? ? "request_method" : "_request_method" %>)
+        <%= payload_source %>
+      end
+<%- requisite_builders.each do |builder| -%>
+
+      # Реквизиты получателя. Заполняются из operation.payout_requisite по
+      # именам полей провайдера; незаполненные необязательные не отправляются.
+      def <%= builder[:method] %>(operation, request_method)
+        requisite = payout_requisite(operation, request_method)
+        {
+<%- builder[:keys].each_with_index do |key, index| -%>
+<%- value = payout_method? && key[:name] == payout_method_field ? "payout_method(operation, request_method)" : "requisite[#{key[:name].inspect}]" -%>
+          <%= key[:name] %>: <%= value %><%= index == builder[:keys].size - 1 ? "" : "," %>
+<%- end -%>
+        }.compact
+      end
+<%- end -%>
+<%- if payout_method? -%>
+
+      # Способ выплаты. `request_method` — логический тип действия шлюза, а не
+      # HTTP-глагол: если он совпал с одним из объявленных провайдером
+      # способов, берётся он, иначе способ читается из самих реквизитов.
+      def payout_method(operation, request_method)
+        return request_method.to_s if PAYOUT_METHODS.include?(request_method.to_s)
+
+        payout_requisite(operation, request_method)[<%= payout_method_field.inspect %>]
+      end
+<%- end -%>
+<%- if requisite_builders.any? -%>
+
+      # Реквизиты у заказчика лежат либо плоским хешем, либо сгруппированными
+      # по способу выплаты. Поддерживаются оба вида: иначе интеграция
+      # разваливается от того, как именно оформлена запись в базе.
+      def payout_requisite(operation, request_method)
+        requisite = operation.payout_requisite || {}
+        group = requisite[request_method.to_s]
+        return requisite.merge(group) if group.is_a?(Hash)
+
+        requisite.values.grep(Hash).reduce(requisite) { |merged, part| merged.merge(part) }
+      end
+<%- end -%>
+<%- if minor_units -%>
+
+      # Перевод через BigDecimal, а не умножением числа с плавающей точкой:
+      # (19.99 * 100).to_i даёт 1998, и такая ошибка в выплатах стоит дорого.
+      def to_minor_units(amount)
+        (BigDecimal(amount.to_s) * MINOR_UNIT_FACTOR).round
+      end
+<%- end -%>
+    end
+
+    include Contract
+    include Payload
+
+    # Предпроверки до обращения к провайдеру.
+    def check_conditions(operation, request_method)
+      base_result = super
+      return base_result if base_result.failed?
+<%- if minimum_amount -%>
+      return failure(:unprocessable_entity, "amount_too_low") if amount_too_low?(operation)
+<%- end -%>
+<%- if required_requisite_fields.any? -%>
+
+      missing = missing_requisite_field(operation, request_method)
+      return failure(:unprocessable_entity, "#{missing}_required") if missing
+<%- end -%>
+
+      success
+    end
+<%- if create? -%>
+
+    # Создание выплаты.
+    def create_request(operation, request_method = "create")
+      response = client.post(
+        "#{BASE_URL}#{CREATE_PATH}",
+        json: build_request_payload(operation, request_method),
+        headers: create_headers(operation)
+      )
+      parse_create_response(operation, response)
+    rescue Provider::ApiError => e
+      provider_failure(e)
+    end
+<%- else -%>
+
+    # ЗАПОЛНИТЬ ВРУЧНУЮ: операцию создания выплаты определить в описании API
+    # не удалось, подставить её адрес и тело запроса некому.
+    def create_request(operation, request_method = "create")
+      raise NotImplementedError, "операция создания выплаты не определена в описании API"
+    end
+<%- end -%>
+<%- if status? -%>
+
+    # Запрос статуса выплаты.
+    def fetch_status(operation)
+      path = format(STATUS_PATH, <%= status_path_param %>: operation.provider_operation_id)
+      response = client.get("#{BASE_URL}#{path}", headers: auth_headers)
+      return failure(:not_found, "provider.not_found") unless response.success?
+
+      parse_status_response(response.body)
+    rescue Provider::ApiError => e
+      provider_failure(e)
+    end
+<%- else -%>
+
+    # ЗАПОЛНИТЬ ВРУЧНУЮ: операцию запроса статуса определить не удалось.
+    def fetch_status(operation)
+      raise NotImplementedError, "операция запроса статуса не определена в описании API"
+    end
+<%- end -%>
+
+<%- if webhook? -%>
+    # Обработка уведомления о смене статуса.
+    def process_callback(payload)
+      return failure(:unauthorized, "provider.invalid_signature") unless valid_signature?(payload)
+
+      operation_status = EVENT_MAP[payload[EVENT_FIELD]]
+      return failure(:unprocessable_entity, "unknown_event") if operation_status.nil?
+
+      apply_callback(payload, operation_status)
+    end
+<%- else -%>
+    # Уведомлений у провайдера нет.
+    #
+    # В описании API нет ни адреса для приёма уведомлений, ни схемы подписи,
+    # поэтому обработчик не выдумывается: статус запрашивается опросом через
+    # fetch_status. Если провайдер уведомления всё-таки шлёт и они просто не
+    # описаны — допишите обработчик руками.
+    def process_callback(_payload)
+      failure(:not_implemented, "provider.callbacks_not_supported")
+    end
+<%- end -%>
+
+    private
+
+    def auth_headers
+      { AUTH_HEADER => <%= bearer? ? "\"#{'#'}{AUTH_PREFIX}#{'#'}{ENV.fetch(API_KEY_ENV)}\"" : "ENV.fetch(API_KEY_ENV)" %> }
+    end
+
+<%- if idempotency_header -%>
+    # Ключ идемпотентности защищает от двойной выплаты при повторе запроса.
+    # Берётся идентификатор операции: он не меняется между повторами, а
+    # случайное значение сделало бы заголовок бесполезным.
+    def create_headers(operation)
+      auth_headers.merge(IDEMPOTENCY_HEADER => operation.id.to_s)
+    end
+<%- else -%>
+    # Ключа идемпотентности провайдер не объявил: повтор запроса может
+    # привести к двойной выплате. Стоит уточнить у провайдера.
+    def create_headers(_operation)
+      auth_headers
+    end
+<%- end -%>
+<%- if minimum_amount -%>
+
+    # Сумма сравнивается с порогом в единицах провайдера: так сравниваются
+    # два числа одного вида, без пересчёта порога и потери точности.
+    def amount_too_low?(operation)
+      <%= minor_units ? "to_minor_units(operation.amount)" : "operation.amount" %> < MINIMUM_AMOUNT
+    end
+<%- end -%>
+<%- if required_requisite_fields.any? -%>
+
+    # Первый незаполненный обязательный реквизит получателя или nil.
+    #
+    # Условия вида «поле обязательно при таком-то способе выплаты» задаются в
+    # описаниях словами, а не структурой, и автоматически не вычитываются —
+    # проверяется только то, что провайдер объявил обязательным явно.
+    def missing_requisite_field(operation, request_method)
+      requisite = payout_requisite(operation, request_method)
+      REQUIRED_REQUISITE_FIELDS.find do |field|
+        value = requisite[field]
+        value.nil? || (value.respond_to?(:empty?) && value.empty?)
+      end
+    end
+<%- end -%>
+<%- if create? -%>
+
+    def parse_create_response(operation, response)
+      body = response.body
+      operation.provider_operation_id = body.dig(*RESPONSE_ID_PATH)
+      success(
+        provider_operation_id: body.dig(*RESPONSE_ID_PATH),
+        operation_status: map_status(body.dig(*RESPONSE_STATUS_PATH)),
+        provider_status: body.dig(*RESPONSE_STATUS_PATH)<%= duplicate_status ? "," : "" %>
+<%- if duplicate_status -%>
+        duplicate: response.status == DUPLICATE_STATUS
+<%- end -%>
+      )
+    end
+<%- end -%>
+<%- if status? -%>
+
+    def parse_status_response(body)
+      success(
+        provider_operation_id: body.dig(*RESPONSE_ID_PATH),
+        operation_status: map_status(body.dig(*RESPONSE_STATUS_PATH)),
+        provider_status: body.dig(*RESPONSE_STATUS_PATH)
+      )
+    end
+<%- end -%>
+
+    # Неизвестный статус не имеет права стать approved или rejected:
+    # операция остаётся в работе, и с ней разбирается человек. Молча признать
+    # выплату успешной по незнакомому слову — худшее из возможного.
+    def map_status(provider_status)
+      STATUS_MAP.fetch(provider_status, BaseService::IN_PROGRESS)
+    end
+
+    def provider_failure(error)
+      mapping = ERROR_MAP.fetch(error.status, UNKNOWN_ERROR)
+      failure(
+        mapping[:status], mapping[:code],
+        action: mapping[:action], provider_code: error.provider_code, retry_after: error.retry_after
+      )
+    end
+<%- if webhook? -%>
+
+    def apply_callback(payload, operation_status)
+      provider_id = payload[WEBHOOK_ID_FIELD]
+      details = { provider_status: payload[RESPONSE_STATUS_PATH.last], event: payload[EVENT_FIELD] }
+      case operation_status
+      when BaseService::APPROVED then approve_operation(provider_id, **details)
+      when BaseService::REJECTED then reject_operation(provider_id, callback_error_code(payload),
+                                                       **details)
+      else progress_operation(provider_id, **details)
+      end
+    end
+
+    def callback_error_code(payload)
+      payload.dig(*ERROR_CODE_PATH)
+    end
+
+    # Подпись считается от сырого тела запроса секретом провайдера, результат
+    # в hex. Сравнение постоянного времени: обычное == выходит из цикла на
+    # первом несовпавшем символе и по времени ответа выдаёт подпись по байту.
+    def valid_signature?(payload)
+      body = raw_body(payload)
+      received = callback_header(payload, SIGNATURE_HEADER)
+      return false if body.nil? || body.empty? || received.nil? || received.empty?
+
+      expected = OpenSSL::HMAC.hexdigest(SIGNATURE_ALGORITHM, ENV.fetch(SECRET_ENV), body)
+      OpenSSL.secure_compare(expected, received)
+    end
+<%- end -%>
+  end
+end

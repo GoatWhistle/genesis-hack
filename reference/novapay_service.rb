@@ -55,9 +55,11 @@ class Provider
 
       # Сумма приходит в рублях, а провайдер ждёт копейки.
       MINOR_UNIT_FACTOR = 100
-      # Минимальная сумма выплаты — 1000 RUB, в спецификации записана как
-      # `minimum: 100000` копеек и продублирована словами в описании метода.
-      MINIMUM_AMOUNT = 1000
+      # Минимальная сумма выплаты в единицах провайдера: `minimum: 100000`
+      # копеек, то есть 1000 RUB. Хранится и сравнивается именно в копейках —
+      # пересчёт порога в рубли у провайдера с минимумом в одну копейку дал бы
+      # ноль на целочисленном делении, и проверка молча исчезла бы.
+      MINIMUM_AMOUNT = 100_000
 
       DEFAULT_CURRENCY = "RUB"
 
@@ -161,6 +163,12 @@ class Provider
       def to_minor_units(amount)
         (BigDecimal(amount.to_s) * MINOR_UNIT_FACTOR).round
       end
+
+      # Сумма сравнивается с порогом в единицах провайдера: так сравниваются
+      # два целых числа, а не число с плавающей точкой с дробным порогом.
+      def amount_too_low?(operation)
+        to_minor_units(operation.amount) < MINIMUM_AMOUNT
+      end
     end
 
     include Contract
@@ -171,7 +179,7 @@ class Provider
       base_result = super
       return base_result if base_result.failed?
       return success unless PAYOUT_REQUEST_METHODS.include?(request_method.to_s)
-      return failure(:unprocessable_entity, "amount_too_low") if operation.amount < MINIMUM_AMOUNT
+      return failure(:unprocessable_entity, "amount_too_low") if amount_too_low?(operation)
 
       missing = missing_conditional_field(operation)
       return failure(:unprocessable_entity, "#{missing}_required") if missing
