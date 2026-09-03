@@ -28,7 +28,15 @@ class Provider
       SECRET_ENV = "<%= secret_env %>"
 <%- end -%>
 
+<%- if auth_known? -%>
       AUTH_HEADER = "<%= auth[:header] %>"
+<%- else -%>
+      # ЗАПОЛНИТЬ ВРУЧНУЮ: схемы входа в описании API нет. Имя заголовка с
+      # ключом доступа сказано только словами в тексте описания, поэтому
+      # автоматически его взять неоткуда — подставьте руками, иначе запрос
+      # уйдёт без ключа.
+      AUTH_HEADER = "ЗАПОЛНИТЬ-ВРУЧНУЮ"
+<%- end -%>
 <%- if bearer? -%>
       AUTH_PREFIX = "<%= auth[:prefix] %>"
 <%- end -%>
@@ -167,6 +175,15 @@ class Provider
       # (19.99 * 100).to_i даёт 1998, и такая ошибка в выплатах стоит дорого.
       def to_minor_units(amount)
         (BigDecimal(amount.to_s) * MINOR_UNIT_FACTOR).round
+      end
+<%- end -%>
+<%- if amount_mode == :string_decimal -%>
+
+      # Провайдер объявил сумму строкой с двумя знаками после точки. Число
+      # он отвергнет, а `to_s` у числа с плавающей точкой даст «1500.0»
+      # вместо «1500.00», поэтому форматирование явное и через BigDecimal.
+      def format_amount(amount)
+        format("%<value>.2f", value: BigDecimal(amount.to_s))
       end
 <%- end -%>
     end

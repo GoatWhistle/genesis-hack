@@ -28,9 +28,10 @@ module Rsocket
 
       WORD = /\A[a-zA-Z_][a-zA-Z0-9_]*\z/
 
-      def_delegators :@context, *ServiceContext.members
-      def_delegators :@context, :webhook?, :cancel?, :status?, :create?, :bearer?,
-                     :payout_method?, :request_method_used?
+      # Делегируется всё, что умеет контекст, а не перечисленный руками
+      # список: список пришлось бы дополнять при каждом новом поле, и шаблон
+      # падал бы на ровном месте уже дважды по этой причине.
+      def_delegators :@context, *(ServiceContext.instance_methods - Object.instance_methods)
 
       def initialize(context)
         @context = context

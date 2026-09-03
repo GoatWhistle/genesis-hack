@@ -21,9 +21,16 @@ module Rsocket
         external_id: "operation.id"
       }.freeze
 
-      def initialize(plan, minor_units: true, indent: 8)
+      AMOUNT_SOURCES = {
+        minor: "to_minor_units(operation.amount)",
+        decimal: "operation.amount",
+        string_minor: "to_minor_units(operation.amount).to_s",
+        string_decimal: "format_amount(operation.amount)"
+      }.freeze
+
+      def initialize(plan, amount_mode: :minor, indent: 8)
         @plan = plan
-        @minor_units = minor_units
+        @amount_mode = amount_mode
         @indent = indent
       end
 
@@ -80,7 +87,7 @@ module Rsocket
       end
 
       def amount_source
-        @minor_units ? "to_minor_units(operation.amount)" : "operation.amount"
+        AMOUNT_SOURCES.fetch(@amount_mode)
       end
 
       def key(name)

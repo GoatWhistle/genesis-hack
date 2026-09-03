@@ -41,7 +41,7 @@ RSpec.describe Rsocket::Generate::ServiceGenerator do
     GeneratedServices.build(provider, classification: classification)
   end
 
-  %w[novapay swiftpay kassabox].each do |provider|
+  %w[novapay swiftpay kassabox nordbank].each do |provider|
     describe "описание #{provider}" do
       subject(:result) { generate(provider) }
 
@@ -117,6 +117,20 @@ RSpec.describe Rsocket::Generate::ServiceGenerator do
     end
   end
 
+  describe "описание без схемы входа и без объявленных ошибок" do
+    subject(:source) { generate("nordbank").source }
+
+    # Имя заголовка с ключом сказано в описании только словами. Подставить
+    # пустую строку значило бы молча отправлять запросы без ключа.
+    it "громко помечает незаполненный заголовок входа" do
+      expect(source).to include(%(AUTH_HEADER = "ЗАПОЛНИТЬ-ВРУЧНУЮ"))
+    end
+
+    it "не выдумывает обработку кодов ошибок, которых провайдер не объявил" do
+      expect(source).to include("ERROR_MAP = {}.freeze")
+    end
+  end
+
   describe "единицы суммы" do
     it "домножает сумму там, где провайдер ждёт копейки" do
       expect(generate("novapay").source).to include("to_minor_units(operation.amount)")
@@ -124,6 +138,12 @@ RSpec.describe Rsocket::Generate::ServiceGenerator do
 
     it "не трогает сумму там, где провайдер ждёт дробное число" do
       expect(generate("swiftpay").source).to include("amount: operation.amount")
+    end
+
+    # Провайдер объявил сумму строкой: число он отвергнет, а to_s у числа с
+    # плавающей точкой даст «1500.0» вместо «1500.00».
+    it "форматирует сумму строкой там, где провайдер объявил её строкой" do
+      expect(generate("nordbank").source).to include("amount: format_amount(operation.amount)")
     end
   end
 

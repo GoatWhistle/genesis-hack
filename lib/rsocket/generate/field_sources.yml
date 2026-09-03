@@ -43,6 +43,8 @@ external_id:
   - reference
   - order_no
   - order_id
+  - order_reference
+  - payment_reference
 
 # Объект получателя. Его вложенные поля заполняются из
 # operation.payout_requisite по их собственным именам.

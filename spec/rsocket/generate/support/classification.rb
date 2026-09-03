@@ -44,6 +44,15 @@ module ClassificationDouble
       money: [:decimal, "amount"],
       webhook: nil
     },
+    "nordbank" => {
+      roles: { create_payout: "createPaymentOrder", fetch_status: "getPaymentOrder",
+               cancel: "revokePaymentOrder" },
+      statuses: { "ACCEPTED" => :created, "IN_PROGRESS" => :processing,
+                  "EXECUTED" => :succeeded, "RETURNED" => :rejected, "REVOKED" => :cancelled },
+      errors: {},
+      money: [:decimal, "amount"],
+      webhook: nil
+    },
     "kassabox" => {
       roles: { create_payout: "makeTransfer", fetch_status: "transferInfo",
                cancel: "abortTransfer" },

@@ -20,12 +20,13 @@ module Rsocket
         @fields = operation&.request_fields || []
         @minor_units = minor_units
         @plan = PayloadPlan.new(@fields)
-        @renderer = PayloadRenderer.new(@plan, minor_units: minor_units)
+        @renderer = PayloadRenderer.new(@plan, amount_mode: amount_mode)
       end
 
       def to_h
         {
           payload_source: @renderer.call,
+          amount_mode: amount_mode,
           requisite_builders: builders,
           required_requisite_fields: required_requisite,
           payout_method_field: method_field&.name,
@@ -40,6 +41,25 @@ module Rsocket
       end
 
       private
+
+      # Как передавать сумму. Тип поля важнее единиц: провайдер, объявивший
+      # сумму строкой, отвергнет число, каким бы верным оно ни было.
+      def amount_mode
+        @amount_mode ||= begin
+          field = amount_leaf
+          string = field&.type.to_s == "string"
+          if string
+            @minor_units ? :string_minor : :string_decimal
+          else
+            @minor_units ? :minor : :decimal
+          end
+        end
+      end
+
+      def amount_leaf
+        matcher = FieldMatcher.default
+        leaves(@fields).find { |field| matcher.role?(field.name, :amount) }
+      end
 
       def builders
         @plan.requisite_objects.map do |node|
