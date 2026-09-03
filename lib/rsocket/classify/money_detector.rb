@@ -55,13 +55,19 @@ module Rsocket
       end
 
       def decide(found)
-        totals = found.group_by(&:first).transform_values do |group|
-          group.sum { |item| item.last.weight }
-        end
+        totals = totals_of(found)
         best = totals.max_by { |_unit, weight| weight }
-        return if best.nil? || tie?(totals, best)
+        return if best.nil? || tie?(totals, best) || best.last < minimum_weight
 
         best.first
+      end
+
+      def minimum_weight = weight("minimum_weight")
+
+      def totals_of(found)
+        found.group_by(&:first).transform_values do |group|
+          group.sum { |item| item.last.weight }
+        end
       end
 
       def tie?(totals, best) = totals.count { |_unit, weight| weight == best.last } > 1
