@@ -1,0 +1,60 @@
+# Роли и слова, по которым их узнают в описании API.
+#
+# Одно и то же действие у разных провайдеров называется по-разному, поэтому
+# знание «как это называют» лежит здесь, а не в коде. Добавление новой роли —
+# правка только этого файла: механизм оценки про конкретные роли не знает.
+#
+# strong — слова, по которым роль узнаётся почти однозначно («cancel», «отмен»).
+# weak   — слова предметной области: встречаются сразу у нескольких ролей
+#          («payout», «transfer»), поэтому дают меньший вес.
+# tags   — слова, которые ищем в тегах и названиях разделов.
+#
+# Слова длиной от четырёх букв сравниваются по вхождению, поэтому в списках
+# лежат основы: «созда» покрывает «создать» и «создание», «payout» — «payouts».
+# Слова короче сравниваются целиком, чтобы «new» не находился внутри «renewal».
+
+create_payout:
+  title: создание выплаты
+  strong:
+    [create, make, submit, register, initiate, execute, issue, send, new, post, start,
+     созда, отправ, сформир, провед]
+  weak:
+    [payout, payment, transfer, disbursement, withdrawal, remittance, transaction, order,
+     выплат, перевод, платеж, платёж, поручен]
+  tags: [payout, payment, transfer, disbursement, withdrawal, money, выплат, перевод, платеж]
+
+fetch_status:
+  title: запрос статуса
+  strong:
+    [status, state, info, details, retrieve, lookup, fetch, show, inquiry, poll, check,
+     статус, состояни, сведени, узнать, получить]
+  weak:
+    [get, read, view, payout, payment, transfer, transaction, order,
+     выплат, перевод, платеж, платёж]
+  tags: [payout, payment, transfer, status, выплат, перевод, статус]
+
+cancel:
+  title: отмена
+  strong: [cancel, void, revoke, abort, terminate, stop, отмен, отозв, остано, прекра]
+  weak: [payout, payment, transfer, transaction, order, выплат, перевод, платеж, платёж]
+  tags: [payout, payment, transfer, выплат, перевод]
+
+refund:
+  title: возврат средств
+  strong: [refund, reversal, reverse, chargeback, payback, возврат, вернуть, верну, возмещ]
+  weak: [return, payout, payment, transfer, transaction, order, выплат, перевод, платеж]
+  tags: [refund, return, возврат]
+
+balance:
+  title: баланс
+  strong: [balance, funds, wallet, баланс, остат, средств]
+  weak: [account, available, limit, provider, счет, счёт, доступн]
+  tags: [balance, account, wallet, баланс, счет, счёт]
+
+webhook:
+  title: приём уведомлений
+  strong:
+    [webhook, callback, notification, notify, hook, push, event,
+     уведомл, оповещ, вебхук, колбэк, событи]
+  weak: [receive, incoming, listener, subscribe, приём, прием, входящ]
+  tags: [webhook, callback, notification, event, уведомл, событи]

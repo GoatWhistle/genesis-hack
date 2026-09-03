@@ -1,0 +1,45 @@
+# Ошибки провайдера и то, как с ними обращаться.
+#
+# Класс ошибки — это решение вызывающего кода, а не название провайдера:
+# retryable — повторить позже, limit — повторить с задержкой из ответа,
+# auth — чинить доступ, validation — чинить запрос, final — повторять бесполезно.
+#
+# Сначала смотрим на код ответа: он есть всегда. Потом уточняем словами из кода
+# ошибки и описания — они точнее, но есть не везде.
+
+by_code:
+  "400": validation
+  "401": auth
+  "403": auth
+  "404": final
+  "408": retryable
+  "409": final
+  "402": retryable   # денег нет сейчас, но появятся — повтор осмыслен
+  "422": validation
+  "423": retryable
+  "425": retryable
+  "429": limit
+  "500": retryable
+  "502": retryable
+  "503": retryable
+  "504": retryable
+
+# Диапазоны на случай кодов, которых нет в списке выше. Проверяются по порядку.
+by_range:
+  - { from: 500, to: 599, class: retryable }
+  - { from: 400, to: 499, class: final }
+
+by_words:
+  limit: [rate_limit, ratelimit, too_many, throttl, quota, limit_exceeded, лимит, частот]
+  auth:
+    [unauthorized, forbidden, invalid_key, invalid_token, invalid_signature, access_denied,
+     credential, permission, expired_token, авториз, доступ, ключ, подпис]
+  validation:
+    [validation, invalid, malformed, bad_request, required, missing, not_supported,
+     unsupported, wrong, валидац, неверн, некорректн, обязательн, отсутств]
+  retryable:
+    [insufficient, balance, internal, unavailable, timeout, temporar, try_again, retry,
+     maintenance, недостаточн, внутрен, недоступ, времен, повтор]
+  final:
+    [not_found, notfound, closed, blocked, rejected, declined, duplicate, already,
+     not_allowed, forbidden_operation, не найден, закрыт, заблокир, дубл, отклон]

@@ -1,0 +1,34 @@
+# Статусы провайдеров и наш канонический набор.
+#
+# Слева — наш статус, справа — как это же состояние называют в описаниях. Наш
+# набор шире набора заказчика намеренно: перевод в его три статуса делает
+# шаблон сервиса, а мы до последнего шага не теряем смысл (отмена — это не то
+# же самое, что отказ банка, хотя у заказчика оба станут rejected).
+#
+# Сравнение точное по нормализованному значению; частичное совпадение
+# засчитывается отдельно и с пометкой «проверьте».
+
+created:
+  [pending, new, created, registered, accepted, queued, initiated, received, awaiting,
+   created_at_provider, создан, принят, зарегистр, ожидан]
+
+processing:
+  [processing, in_progress, inprogress, progress, sent, sending, executing, submitted,
+   transferring, on_the_way, pending_execution, обработ, исполн, отправл, передан]
+
+succeeded:
+  [completed, complete, success, successful, succeeded, paid, approved, delivered, settled,
+   executed, done, finished, credited, выполн, заверш, успеш, зачисл, оплач, одобр]
+
+rejected:
+  [failed, failure, declined, rejected, denied, error, expired, unpaid, returned_by_bank,
+   отклон, отказ, ошиб, неуспеш, просроч]
+
+cancelled:
+  [cancelled, canceled, voided, aborted, revoked, withdrawn, stopped, отмен, отозв, останов]
+
+refunded: [refunded, returned, reversed, chargeback, refund, возвращ, возврат]
+
+needs_review:
+  [review, manual_review, on_hold, hold, pending_review, compliance, verification,
+   проверк, ручн, удержан]
