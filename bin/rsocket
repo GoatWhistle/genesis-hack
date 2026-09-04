@@ -1,7 +1,0 @@
-#!/usr/bin/env ruby
-# frozen_string_literal: true
-
-require_relative "../lib/rsocket"
-require_relative "../lib/rsocket/cli"
-
-Rsocket::CLI.start(ARGV)
