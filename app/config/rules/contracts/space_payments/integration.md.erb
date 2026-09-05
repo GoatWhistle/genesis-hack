@@ -1,0 +1,157 @@
+# <%= provider.capitalize %> — инструкция по подключению
+
+Собрано инструментом rsocket по описанию OpenAPI под <%= contract %>.
+Класс: `Provider::<%= class_name %> < Provider::BaseService`.
+Базовый адрес: `<%= base_url %>`.
+
+Файл сгенерирован. Правки затрёт следующий прогон — правьте правила и пересобирайте.
+
+## Настройка
+
+Переменные окружения:
+
+| Переменная | Назначение |
+|---|---|
+<% env_variables.each do |name| -%>
+| `<%= name %>` | <%= name.end_with?("BASE_URL") ? "адрес провайдера; по умолчанию адрес из описания" : "ключ авторизации" %> |
+<% end -%>
+<% if signature? -%>
+| `<%= env_prefix %>_CALLBACK_SECRET` | секрет для проверки подписи уведомлений |
+<% end -%>
+
+Ключи сервис берёт из `providers.credentials` (encrypted), а без контекста провайдера — из
+окружения. Таймауты: соединение <%= http.fetch(:open_timeout) %> с, ответ <%= http.fetch(:read_timeout) %> с.
+
+## Авторизация
+
+<% if credentials.primary -%>
+- Тип: **<%= credentials.primary.kind %>** (схема `<%= credentials.primary.name %>` из описания)
+- Куда: <%= credentials.primary.location == "query" ? "параметр строки запроса" : "заголовок" %> `<%= credentials.primary.parameter %>`
+- Что нужно: <%= credentials.primary.credentials.map { |key| "`#{key}`" }.join(", ") %>
+<% unless credentials.alternatives.empty? -%>
+- Провайдер также принимает: <%= credentials.alternatives.map { |scheme| "`#{scheme.name}` (#{scheme.kind})" }.join(", ") %>
+<% end -%>
+<% else -%>
+В описании провайдера нет `securitySchemes` — авторизацию нужно дописать руками в методе
+`authorize` сгенерированного класса.
+<% end -%>
+
+## Методы
+
+| Метод контракта | Endpoint | Назначение | Заголовки |
+|---|---|---|---|
+<% bindings.each do |role, item| -%>
+| `<%= role %>` | <%= item.bound? ? item.endpoint : "—" %> | <%= item.role.title %> | <%= (call_for(role)&.headers&.keys || []).join(", ") %> |
+<% end -%>
+
+<% bindings.each_value do |item| -%>
+<% next if item.bound? -%>
+Роль `<%= item.role_name %>` не распознана: <%= item.explanation %>.
+<% end -%>
+
+## Маппинг статусов
+
+| Состояние провайдера | Статус контракта |
+|---|---|
+<% status_entries.each do |token, status| -%>
+| `<%= token %>` | `<%= status %>` |
+<% end -%>
+
+Состояние, которого нет в таблице, считается `in_progress`: закрывать операцию по незнакомому
+слову опаснее, чем спросить ещё раз.
+<% if event_map.any? %>
+### События уведомлений
+
+| Событие | Статус контракта |
+|---|---|
+<% event_map.each do |event, status| -%>
+| `<%= event %>` | `<%= status %>` |
+<% end -%>
+<% end %>
+## Обработка ошибок
+
+| HTTP | Код контракта | Действие |
+|---|---|---|
+<% error_entries.each do |code, entry| -%>
+| <%= code %> | `<%= entry.fetch(:code) %>` | <%= entry.fetch(:action) %> |
+<% end -%>
+
+Действия: `reject` — операция не пройдёт, `alert` — нужно вмешательство, `retry*` — можно повторить.
+Метод `retriable_error?` отвечает на этот вопрос по таблице выше.
+
+## Предпроверки
+
+<% if constraints.empty? -%>
+Ограничений в описании провайдера не нашлось.
+<% else -%>
+| Проверка | Значение | Откуда взято |
+|---|---|---|
+<% constraints.each do |item| -%>
+| `<%= item.code %>` | `<%= item.value.inspect %>` | <%= item.source %> |
+<% end -%>
+<% end -%>
+
+Сумма уходит провайдеру как `<%= amount_expression %>`<%= amount_multiplier == 1 ? "" : " — то есть в минимальных единицах" %>.
+
+## Уведомления
+
+<% if callback.supported -%>
+Эндпоинт: `<%= callback_endpoint %>`
+
+| Что | Где в теле |
+|---|---|
+| идентификатор операции | `<%= Array(callback.operation_path).join(".") %>` |
+<% if callback.event_path -%>
+| событие | `<%= Array(callback.event_path).join(".") %>` |
+<% end -%>
+<% if callback.status_path -%>
+| состояние | `<%= Array(callback.status_path).join(".") %>` |
+<% end -%>
+<% if callback.error_path -%>
+| код ошибки | `<%= Array(callback.error_path).join(".") %>` |
+<% end -%>
+
+<% if signature? -%>
+Подпись: `<%= callback.signature_algorithm.upcase %>(тело, callback_secret)` → hex → заголовок
+`<%= callback.signature_header %>`. Метод `process_callback` проверяет её до разбора события.
+Заголовки ожидаются в `payload["headers"]`, сырое тело — в `payload["raw_body"]`.
+<% else -%>
+Подпись в описании не найдена — проверять нечего. Если провайдер её всё-таки шлёт, добавьте
+проверку руками.
+<% end -%>
+<% else -%>
+Провайдер не описывает webhook. `process_callback` возвращает
+`failure(:not_implemented, "provider.callback_not_supported")`, состояние узнаётся опросом
+`fetch_status`.
+<% end -%>
+
+## ProviderGateway
+
+Конфиг подключения зависит от вашего каталога методов, инструмент его не выдумывает.
+Из описания провайдера известно:
+
+<% currencies = constraints.find(&:currency?) -%>
+- валюты: <%= currencies ? currencies.value.join(", ") : "в описании не перечислены" %>
+<% if recipient_type -%>
+- способ выплаты из примера: `<%= recipient_type %>`
+<% end -%>
+
+```json
+{ "external_method": "<TODO>", "gateway": "<TODO>" }
+```
+
+## Что проверить руками
+
+<% if warnings.empty? -%>
+Инструмент не оставил замечаний.
+<% else -%>
+<% warnings.each do |warning| -%>
+- <%= warning %>
+<% end -%>
+<% end -%>
+
+## Файлы рядом
+
+- `<%= provider %>_service.rb` — сам сервис;
+- `fixtures.json` — примеры запросов, ответов и уведомлений;
+- `mapping.yml` — как инструмент разобрал описание: роли, счёт, сработавшие правила.

@@ -1,0 +1,128 @@
+# Контракт заказчика Space Payments: класс наследуется от Provider::BaseService,
+# отвечает Result-объектами через success/failure и читает операцию заказчика.
+#
+# Всё, что зависит от этого контракта, лежит здесь: имена ролей (они же имена
+# методов), словарь статусов, коды ошибок и выражения на Ruby, которыми обёртка
+# достаёт данные. Распознавание чужого API — в app/config/base.yml, общее для всех
+# контрактов.
+
+contract:
+  title: контракт Space Payments (Provider::BaseService)
+  class_suffix: Service
+  # Что выдаём на одну сборку. Порядок важен: первый файл считается главным.
+  outputs:
+    - { template: service.rb.erb, file: "%<provider>s_service.rb" }
+    - { template: integration.md.erb, file: INTEGRATION.md }
+    - { template: fixtures.json.erb, file: fixtures.json }
+
+# Как сгенерированный сервис ходит к провайдеру. Значения попадают в константы
+# класса: правка здесь меняет поведение всех собранных сервисов после пересборки.
+http:
+  open_timeout: 5
+  read_timeout: 15
+  user_agent: "space-payments-adapter/1.0"
+
+classification:
+  # Порядок раздачи ролей. Занятая операция в следующих ролях не участвует.
+  order: [create_request, fetch_status, process_callback, cancel_request]
+  # Роли, без которых обёртка бессмысленна: не нашлись — падаем, а не молчим.
+  required: [create_request, fetch_status]
+  thresholds:
+    default: 8
+    create_request: 10
+  # Чьи ответы описывают состояния операции, в порядке доверия: у статус-запроса
+  # перечисление полнее всего, ответ на создание — подстраховка.
+  status_sources: [fetch_status, create_request, process_callback]
+  roles:
+    create_request:
+      title: создание выплаты
+      archetype: creation
+      traits: [calls_provider, creates_operation]
+    fetch_status:
+      title: статус-запрос
+      archetype: status_lookup
+      traits: [calls_provider]
+    process_callback:
+      title: обработка webhook
+      archetype: callback
+      traits: [receives_callback]
+    cancel_request:
+      title: отмена операции
+      archetype: cancellation
+      traits: [calls_provider]
+
+# Статус контракта → группа состояний из base.yml.
+statuses:
+  approved: settled
+  rejected: failed
+  in_progress: pending
+
+# Смысл ошибки из base.yml → код контракта, действие и символ статуса для failure().
+errors:
+  default: { code: unknown_error, action: alert, symbol: bad_gateway }
+  semantics:
+    bad_request: { code: validation_error, action: reject, symbol: bad_request }
+    validation: { code: validation_error, action: reject, symbol: unprocessable_entity }
+    credentials: { code: invalid_credentials, action: alert, symbol: unauthorized }
+    forbidden: { code: forbidden, action: alert, symbol: forbidden }
+    insufficient_funds: { code: insufficient_balance, action: retry_later, symbol: payment_required }
+    not_found: { code: not_found, action: reject, symbol: not_found }
+    conflict: { code: conflict, action: reject, symbol: conflict }
+    rate_limit: { code: rate_limit, action: retry_backoff, symbol: too_many_requests }
+    internal: { code: internal_error, action: retry, symbol: internal_server_error }
+    bad_gateway: { code: internal_error, action: retry, symbol: bad_gateway }
+    unavailable: { code: provider_unavailable, action: retry, symbol: service_unavailable }
+    timeout: { code: provider_timeout, action: retry, symbol: gateway_timeout }
+
+# Чем обёртка заполняет узнанное поле. Имя поля — из base.yml, выражение — отсюда.
+# Поле без выражения считается незаполненным: обязательное напечатается с TODO,
+# необязательное будет опущено.
+sources:
+  payload:
+    amount: 'provider_amount(operation)'
+    currency: 'operation.currency'
+    external_id: 'operation.id'
+    description: 'operation.description'
+  requisite:
+    type: 'requisite(operation, "type")'
+    phone: 'requisite(operation, "phone")'
+    card_token: 'requisite(operation, "card_token")'
+    card_number: 'requisite(operation, "card_number")'
+    account: 'requisite(operation, "account")'
+    name: 'requisite(operation, "name")'
+    bank_code: 'requisite(operation, "bank_code")'
+    bank_name: 'requisite(operation, "bank_name")'
+    inn: 'requisite(operation, "inn")'
+    kpp: 'requisite(operation, "kpp")'
+  path:
+    provider_id: 'operation.provider_operation_id'
+  headers:
+    idempotency: 'operation.id'
+
+# Чем обёртка приводит сумму операции к тому виду, которого ждёт провайдер.
+amount:
+  integer_minor: '(operation.amount * 100).to_i'
+  integer_major: 'operation.amount.to_i'
+  decimal_string: 'format("%.2f", operation.amount)'
+  string: 'operation.amount.to_s'
+  number: 'operation.amount.to_f'
+
+# Ограничение из описания → код отказа, константа с границей и выражение, которое
+# с этой границей сравнивается. Ограничение, не описанное здесь, не проверяется.
+conditions:
+  min_amount: { code: amount_too_low, constant: MIN_AMOUNT, subject: 'operation.amount' }
+  max_amount: { code: amount_too_high, constant: MAX_AMOUNT, subject: 'operation.amount' }
+  currency: { code: unsupported_currency, constant: ALLOWED_CURRENCIES, subject: 'operation.currency' }
+
+# Чем подписывается запрос. %<parameter>s — имя заголовка или параметра из
+# описания провайдера, %<name>s — имя схемы авторизации.
+authorization:
+  api_key_header: 'message["%<parameter>s"] = credential(:api_key)'
+  api_key_query: '# Ключ уходит в строке запроса — см. build_uri.'
+  query_pair: '{ "%<parameter>s" => credential(:api_key) }'
+  bearer: 'message["Authorization"] = "Bearer #{credential(:access_token)}"'
+  basic: 'message.basic_auth(credential(:username).to_s, credential(:password).to_s)'
+  unsupported: '# TODO: схема %<name>s не поддержана — подпишите запрос здесь'
+  missing: '# TODO: в описании нет securitySchemes — подпишите запрос здесь'
+  comment: 'Авторизация: %<name>s (%<kind>s).'
+  comment_missing: 'В описании провайдера нет securitySchemes.'

@@ -1,0 +1,324 @@
+# frozen_string_literal: true
+
+# Сервис собран инструментом rsocket по описанию OpenAPI под контракт
+# <%= contract %>. Правила разбора живут в app/config/rules/contracts/<%= contract %>/,
+# решения по каждой роли — в mapping.yml рядом с этим файлом. Правки здесь затрёт
+# следующий прогон.
+
+require "json"
+require "net/http"
+require "openssl"
+require "uri"
+
+class Provider
+  class <%= class_name %> < BaseService
+    ENV_PREFIX = "<%= env_prefix %>"
+    BASE_URL = ENV.fetch("#{ENV_PREFIX}_BASE_URL", "<%= base_url %>")
+    OPEN_TIMEOUT = <%= http.fetch(:open_timeout) %>
+    READ_TIMEOUT = <%= http.fetch(:read_timeout) %>
+    USER_AGENT = "<%= http.fetch(:user_agent) %>"
+
+    # Состояния провайдера в терминах контракта. Ключи в нижнем регистре: часть
+    # провайдеров пишет состояния капсом.
+    STATUS_MAP = {
+      <%= status_entries.map { |token, contract| "\"#{token}\" => \"#{contract}\"" }.join(",\n      ") %>
+    }.freeze
+<% if event_map.any? -%>
+
+    # События webhook в терминах контракта.
+    EVENT_MAP = {
+      <%= event_map.map { |event, contract| "\"#{event}\" => \"#{contract}\"" }.join(",\n      ") %>
+    }.freeze
+<% end -%>
+
+    # HTTP-код провайдера → код ошибки контракта и символ статуса для failure.
+    ERROR_MAP = {
+<% error_entries.each do |code, entry| -%>
+      <%= code %> => %i[<%= entry.fetch(:code) %> <%= entry.fetch(:symbol) %>],
+<% end -%>
+      default: %i[unknown_error bad_gateway]
+    }.freeze
+
+    # Что делать с ошибкой: reject — операция не пройдёт, retry* — можно повторить.
+    ERROR_ACTIONS = {
+      <%= action_entries.map { |name, action| "\"#{name}\" => \"#{action}\"" }.join(",\n      ") %>
+    }.freeze
+<% constraint_constants.each do |name, value, source| -%>
+
+    # Источник: <%= source %>.
+    <%= name %> = <%= value %>
+<% end -%>
+<% if signature? -%>
+
+    SIGNATURE_HEADER = "<%= callback.signature_header %>"
+    SIGNATURE_ALGORITHM = "<%= callback.signature_algorithm %>"
+<% end -%>
+
+    # Ответ провайдера: код, разобранное тело и причина, если до провайдера не дошли.
+    Response = Struct.new(:code, :body, :error) do
+      def success? = error.nil? && code.between?(200, 299)
+    end
+
+    # Предпроверки: ограничения провайдера поверх общих проверок BaseService.
+    def check_conditions(operation, request_method)
+      result = super
+      return result if result.failed?
+<% unless constraint_checks.empty? -%>
+
+<% constraint_checks.each do |condition, code| -%>
+      return failure(:unprocessable_entity, "<%= code %>") <%= condition %>
+<% end -%>
+<% end -%>
+
+      success
+    end
+
+<% origin(:create_request).each do |line| -%>
+    # <%= line %>.
+<% end -%>
+    def create_request(operation, request_method = "create")
+      response = <%= request_for(:create_request, "create_request_body(operation)") %>
+      return handle_error(response) unless response.success?
+
+      operation.provider_operation_id = dig_body(response.body, <%= path_literal(created_id_field) %>)
+      success
+    end
+
+<% origin(:fetch_status).each do |line| -%>
+    # <%= line %>.
+<% end -%>
+    def fetch_status(operation)
+      response = <%= request_for(:fetch_status, "fetch_status_body(operation)") %>
+      return handle_error(response) unless response.success?
+
+      map_status(dig_body(response.body, <%= path_literal(status_field) %>))
+    end
+
+<% if bound?(:process_callback) -%>
+<% origin(:process_callback).each do |line| -%>
+    # <%= line %>.
+<% end -%>
+    def process_callback(payload)
+<% if signature? -%>
+      return failure(:unauthorized, "provider.invalid_signature") unless valid_signature?(payload)
+
+<% end -%>
+      operation_id = dig_body(payload, <%= path_literal(callback.operation_path || ["id"]) %>)
+
+      case callback_status(payload)
+      when "approved" then approve_operation(operation_id)
+      when "rejected" then reject_operation(operation_id, callback_error(payload))
+      when "in_progress" then success
+      else failure(:unprocessable_entity, "unknown_event")
+      end
+    end
+<% else -%>
+    # Webhook в описании провайдера не найден: <%= binding_for(:process_callback).explanation %>.
+    # Состояние узнаётся опросом fetch_status.
+    def process_callback(_payload)
+      failure(:not_implemented, "provider.callback_not_supported")
+    end
+<% end -%>
+<% if call_for(:cancel_request) -%>
+
+<% origin(:cancel_request).each do |line| -%>
+    # <%= line %>.
+<% end -%>
+    # Метод сверх контракта BaseService: провайдер умеет отменять операцию.
+    def cancel_request(operation)
+      response = <%= request_for(:cancel_request, "cancel_request_body(operation)") %>
+      return handle_error(response) unless response.success?
+
+      map_status(dig_body(response.body, <%= path_literal(status_field) %>))
+    end
+<% end -%>
+
+    # Можно ли повторить операцию после этого кода ответа — по таблице действий выше.
+    def retriable_error?(http_code)
+      code, = ERROR_MAP.fetch(http_code.to_i, ERROR_MAP.fetch(:default))
+      ERROR_ACTIONS.fetch(code.to_s, "alert").start_with?("retry")
+    end
+
+    private
+
+    # Один запрос к провайдеру: адрес, авторизация, JSON туда и обратно.
+    def request(http_method, path, body: nil, query: {}, headers: {})
+      uri = build_uri(path, query)
+      perform(uri, build_request(http_method, uri, body, headers))
+    end
+
+    def build_uri(path, query)
+      uri = URI.parse("#{BASE_URL.chomp("/")}#{path}")
+<% if credentials.query_pair -%>
+      # Провайдер ждёт ключ в строке запроса, а не в заголовке.
+      parameters = query.compact.merge(<%= credentials.query_pair %>)
+<% else -%>
+      parameters = query.compact
+<% end -%>
+      uri.query = URI.encode_www_form(parameters) unless parameters.empty?
+      uri
+    end
+
+    def build_request(http_method, uri, body, headers)
+      message = Net::HTTP.const_get(http_method.to_s.capitalize).new(uri)
+      default_headers.merge(headers.compact).each { |name, value| message[name] = value.to_s }
+      message.body = JSON.generate(body) unless body.nil?
+      authorize(message)
+      message
+    end
+
+    # Сеть до провайдера не дошла — это не ответ с кодом ошибки, и повторять такое
+    # безопасно: запрос подписан ключом идемпотентности либо ничего не изменил.
+    def perform(uri, message)
+      raw = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https",
+                                                open_timeout: OPEN_TIMEOUT,
+                                                read_timeout: READ_TIMEOUT) do |http|
+        http.request(message)
+      end
+      Response.new(raw.code.to_i, parse_body(raw.body), nil)
+    rescue Timeout::Error, IOError, SystemCallError, OpenSSL::SSL::SSLError => e
+      Response.new(0, {}, e.message)
+    end
+
+    def default_headers
+      { "Content-Type" => "application/json", "Accept" => "application/json",
+        "User-Agent" => USER_AGENT }
+    end
+
+<% credentials.comment.each do |line| -%>
+    # <%= line %>
+<% end -%>
+    def authorize(message)
+<% credentials.lines.each do |line| -%>
+      <%= line %>
+<% end -%>
+    end
+
+    # Ключи берём из providers.credentials, а без контекста провайдера — из ENV.
+    def credential(name)
+      store = respond_to?(:provider) && provider ? provider.credentials.to_h : {}
+      store[name.to_s] || store[name.to_sym] || ENV.fetch("#{ENV_PREFIX}_#{name.to_s.upcase}", nil)
+    end
+
+    # Пустое тело у 204 — обычное дело, а нераспознанное отдаём как есть: по нему
+    # видно, что провайдер ответил не тем, чем обещал в описании.
+    def parse_body(raw)
+      return {} if raw.nil? || raw.empty?
+
+      JSON.parse(raw)
+    rescue JSON::ParserError
+      { "raw" => raw }
+    end
+<% if body?(:create_request) -%>
+
+    # Тело запроса на создание. Имена полей — как у провайдера: тело уходит в JSON
+    # без переименований.
+    def create_request_body(operation)
+      {
+<%= payload_literal(call_for(:create_request).payload, 8) %>
+      }
+    end
+<% end -%>
+<% if body?(:fetch_status) -%>
+
+    def fetch_status_body(operation)
+      {
+<%= payload_literal(call_for(:fetch_status).payload, 8) %>
+      }
+    end
+<% end -%>
+<% if body?(:cancel_request) -%>
+
+    def cancel_request_body(operation)
+      {
+<%= payload_literal(call_for(:cancel_request).payload, 8) %>
+      }
+    end
+<% end -%>
+
+    # Сумма в том виде, в каком её ждёт провайдер.
+    def provider_amount(operation)
+      <%= amount_expression %>
+    end
+
+    # Реквизиты получателя лежат в payout_requisite; часть провайдеров группирует
+    # их по способу выплаты — тогда заглядываем и во вложенный раздел.
+    def requisite(operation, key)
+      store = operation.payout_requisite.to_h
+      return store[key] || store[key.to_sym] if store.key?(key) || store.key?(key.to_sym)
+
+      store.each_value do |nested|
+        next unless nested.is_a?(Hash)
+
+        value = nested[key] || nested[key.to_sym]
+        return value unless value.nil?
+      end
+      nil
+    end
+
+    def map_status(value)
+      # Неизвестное состояние безопаснее считать незавершённым, чем закрыть операцию.
+      STATUS_MAP.fetch(value.to_s.strip.downcase, "in_progress")
+    end
+<% if bound?(:process_callback) -%>
+
+    def callback_status(payload)
+<% if event_map.any? && callback.event_path -%>
+      event = dig_body(payload, <%= path_literal(callback.event_path) %>)
+      return EVENT_MAP[event.to_s] if EVENT_MAP.key?(event.to_s)
+
+<% end -%>
+      map_status(dig_body(payload, <%= path_literal(callback.status_path || ["status"]) %>))
+    end
+
+    def callback_error(payload)
+<% if callback.error_path -%>
+      dig_body(payload, <%= path_literal(callback.error_path) %>)
+<% else -%>
+      nil # в описании webhook нет поля с кодом ошибки
+<% end -%>
+    end
+<% end -%>
+<% if signature? -%>
+
+    # Подпись: <%= callback.signature_algorithm.upcase %> от тела запроса.
+    # Заголовки ожидаются в payload["headers"] — если в вашем контроллере это
+    # не так, поправьте два метода ниже, остальное трогать не нужно.
+    def valid_signature?(payload)
+      secret = credential(:callback_secret)
+      return true if secret.nil?
+
+      received = callback_signature(payload).to_s
+      expected = OpenSSL::HMAC.hexdigest(SIGNATURE_ALGORITHM, secret, callback_body(payload))
+      received.bytesize == expected.bytesize && OpenSSL.secure_compare(received, expected)
+    end
+
+    def callback_signature(payload)
+      headers = payload["headers"] || payload[:headers] || {}
+      headers.to_h.find { |name, _| name.to_s.casecmp?(SIGNATURE_HEADER) }&.last
+    end
+
+    def callback_body(payload)
+      payload["raw_body"] || payload[:raw_body] ||
+        payload.to_h.reject { |key, _| %w[headers raw_body].include?(key.to_s) }.to_json
+    end
+<% end -%>
+
+    # Тело ответа и тело webhook — обычные хеши: имена полей провайдер задал сам,
+    # поэтому ключи не переименовываем, но принимаем и символы.
+    def dig_body(body, *path)
+      path.reduce(body) do |node, key|
+        break nil unless node.respond_to?(:[])
+
+        node[key] || node[key.to_sym]
+      end
+    end
+
+    def handle_error(response)
+      return failure(:gateway_timeout, "provider.transport_error") if response.error
+
+      code, symbol = ERROR_MAP.fetch(response.code, ERROR_MAP.fetch(:default))
+      failure(symbol, "provider.#{code}")
+    end
+  end
+end

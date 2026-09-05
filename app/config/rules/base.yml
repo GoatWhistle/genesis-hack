@@ -1,0 +1,140 @@
+# Распознавание чужого API: как разные провайдеры называют одни и те же операции,
+# поля и заголовки. От контракта заказчика здесь не зависит ничего — в этом файле
+# нет ни одного имени метода, статуса или выражения на Ruby.
+#
+# Контракт живёт отдельно, в app/config/contracts/<имя>/contract.yml, и ссылается
+# на здешние архетипы и группы по именам. Поэтому новый вариант написания
+# operationId добавляется правкой одной строки здесь — сразу для всех контрактов.
+
+# Архетипы операций: что вообще бывает в платёжном API. Роль контракта называется
+# как угодно, но узнаётся по архетипу.
+#
+# Правило — это поле операции, регулярка по нему и вес. Веса нужны, чтобы слабый
+# признак (POST) не перевешивал сильный (глагол в начале operationId). Veto снимает
+# кандидата целиком: без него `cancelPayout` выигрывал бы архетип создания, потому
+# что это POST со словом payout в имени.
+archetypes:
+  creation:
+    rules:
+      - { field: operation_id, pattern: '\A(create|make|submit|send|issue|register|open|start|initiate|new)', weight: 6 }
+      - { field: operation_id, pattern: '(payout|payment|transfer|deposit|order|withdraw|charge)', weight: 3 }
+      - { field: http_method, pattern: '\Apost\z', weight: 2 }
+      - { field: path, pattern: '\A[^{}]+\z', weight: 2 }
+      - { field: summary, pattern: '(создать|создание|отправить|отправка|create|submit|send)', weight: 2 }
+    veto:
+      - { field: operation_id, pattern: '(refund|cancel|revoke|abort|balance|webhook|callback|status|info|list)' }
+      - { field: path, pattern: '(refund|cancel|revoke|abort|balance|webhook|callback|revocation)' }
+
+  status_lookup:
+    rules:
+      - { field: http_method, pattern: '\Aget\z', weight: 4 }
+      - { field: path, pattern: '\{[^}]+\}\z', weight: 4 }
+      - { field: operation_id, pattern: '(status|state|info|fetch|get|show|details|retrieve|check)', weight: 4 }
+      - { field: summary, pattern: '(статус|состояни|сведени|получить|узнать|status|state|fetch)', weight: 2 }
+    veto:
+      - { field: operation_id, pattern: '(balance|refund|webhook|callback|cancel|revoke|abort|list)' }
+      - { field: path, pattern: '(balance|refund|webhook|callback|revocation)' }
+
+  callback:
+    rules:
+      - { field: operation_id, pattern: '(webhook|callback|notification|notify|event)', weight: 8 }
+      - { field: path, pattern: '(webhook|callback|notification|events)', weight: 6 }
+      - { field: tags, pattern: '(webhook|callback|notification|уведомлен)', weight: 4 }
+      - { field: http_method, pattern: '\Apost\z', weight: 1 }
+    veto: []
+
+  cancellation:
+    rules:
+      - { field: operation_id, pattern: '(cancel|revoke|abort|void|withdraw_request|revocation)', weight: 8 }
+      - { field: path, pattern: '(cancel|revoke|abort|revocation)', weight: 4 }
+      - { field: summary, pattern: '(отмен|отозв|остановить|cancel|revoke|abort)', weight: 2 }
+      - { field: http_method, pattern: '\Apost\z', weight: 1 }
+    veto:
+      - { field: operation_id, pattern: '(refund|balance)' }
+
+# Слова, которыми провайдеры называют состояние операции, разобранные по смыслу.
+# Имена групп внутренние: контракт переводит их в свои статусы. Сравнение
+# регистронезависимое — Nordbank пишет состояния капсом, остальные строчными.
+status_patterns:
+  settled:
+    - '\A(completed?|success(ful)?|succeeded|paid|delivered|executed|settled|done|finished|approved|refunded|credited)\z'
+  failed:
+    - '\A(failed|failure|declined|rejected|cancell?ed|revoked|aborted|returned|reversed|error|expired|timeout)\z'
+  pending:
+    - '\A(pending|processing|in_?progress|new|created|accepted|registered|executing|sent|queued|await\w*|received)\z'
+
+# HTTP-код ответа → смысл ошибки. Что с этим смыслом делать — решает контракт:
+# один откажет операции, другой поднимет исключение.
+error_semantics:
+  "400": bad_request
+  "401": credentials
+  "402": insufficient_funds
+  "403": forbidden
+  "404": not_found
+  "409": conflict
+  "422": validation
+  "429": rate_limit
+  "500": internal
+  "502": bad_gateway
+  "503": unavailable
+  "504": timeout
+
+# Свойство схемы запроса → имя поля. Порядок важен: берётся первое правило, чья
+# регулярка совпала с именем свойства. Чем это поле заполнять, говорит контракт.
+payload_patterns:
+  - { field: amount, patterns: ['\Aamount\z', '\Asum\z', '\Avalue\z', '\Atotal\z'] }
+  - { field: currency, patterns: ['\Acurrency\z', '\Acurr\w*\z'] }
+  - { field: external_id, patterns: ['external_?id', 'merchant_?reference', 'client_?ref\w*', 'order_?(no|id|reference)', '\Areference\z'] }
+  - { field: description, patterns: ['\Adescription\z', 'purpose', '\Acomment\z', '\Areason\z', '\Anarrative\z'] }
+  - { field: recipient, patterns: ['\Arecipient\z', '\Adestination\z', '\Abeneficiary\z', '\Areceiver\z', '\Apayee\z', '\Acredit\w*\z'] }
+  - { field: payer_account, patterns: ['payer_?account', 'source_?account', 'debit_?account'] }
+  - { field: value_date, patterns: ['value_?date', 'execution_?date'] }
+
+# Свойства внутри объекта реквизитов получателя.
+requisite_patterns:
+  - { field: type, patterns: ['\Atype\z', '\Amethod\z', '\Akind\z'] }
+  - { field: phone, patterns: ['phone', 'msisdn', '\Amobile\z'] }
+  - { field: card_token, patterns: ['card_?token', 'card_?id'] }
+  - { field: card_number, patterns: ['card_?(number|pan)', '\Apan\z'] }
+  - { field: account, patterns: ['account', 'iban', '\Aacc\z'] }
+  - { field: name, patterns: ['\Aname\z', 'holder', 'full_?name', 'title'] }
+  - { field: bank_code, patterns: ['bank_?(code|bic|id)', '\Abic\z', 'routing', '\Abank\z'] }
+  - { field: bank_name, patterns: ['bank_?name'] }
+  - { field: inn, patterns: ['\Ainn\z', 'tax_?id'] }
+  - { field: kpp, patterns: ['\Akpp\z'] }
+
+# Параметры пути и обязательные параметры строки запроса.
+path_patterns:
+  - { field: provider_id, patterns: ['\w*(id|no|number|reference|uuid)\z'] }
+
+# Поля тела webhook: по ним обёртка понимает, о какой операции и о чём речь.
+callback_fields:
+  operation_id: ['\A\w*(payout|payment|transfer|operation|order)_?id\z', '\Aid\z', '\w*(no|reference)\z']
+  event: ['\Aevent\w*\z', '\Atype\z', '\Aaction\z']
+  status: ['\Astatus\z', '\Astate\z']
+  error_code: ['\Aerror\z', 'error_?code', 'failure', '\Areason\z']
+  # Внутри объекта ошибки нас интересует машинный код, а не текст для человека.
+  error_detail: ['\Acode\z', '\Areason\z', '\Amessage\z']
+
+# Заголовки, которые обёртка обязана распознать в параметрах операций.
+headers:
+  idempotency: ['idempotenc', 'request[-_]?id', 'correlation[-_]?id', 'x-.*-token']
+  signature: ['signature', '\Asign\z', 'hmac', 'digest']
+  signature_algorithms: ['HMAC-SHA-?(?<bits>\d{3})', 'SHA-?(?<bits>\d{3})']
+
+# Единицы суммы и границы, названные в описании словами.
+amount_units:
+  minor_patterns: ['копейк', 'коп\.', 'kopeck', 'minor units?', 'минимальных единицах', '\bcents?\b']
+  multiplier: 100
+  # Слово «копейки» в описании строковой суммы («рубли и копейки через точку»)
+  # говорит о формате записи, а не о единицах. Поэтому копейки признаём только
+  # у целочисленного поля — иначе 1500.00 рублей уедет в 150000 рублей.
+  minor_requires_integer: true
+
+# Границы суммы, названные словами. kind — внутреннее имя ограничения; во что оно
+# превратится в коде, решает контракт.
+amount_text_rules:
+  - { kind: min_amount, comparison: less_than, pattern: 'минимальн\w*\s+сумм\w*\D{0,20}(?<value>[\d\s]+)' }
+  - { kind: min_amount, comparison: less_than, pattern: 'minimum amount\D{0,20}(?<value>[\d\s]+)' }
+  - { kind: max_amount, comparison: greater_than, pattern: 'максимальн\w*\s+сумм\w*\D{0,20}(?<value>[\d\s]+)' }
+  - { kind: max_amount, comparison: greater_than, pattern: 'maximum amount\D{0,20}(?<value>[\d\s]+)' }

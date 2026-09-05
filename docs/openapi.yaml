@@ -1,0 +1,594 @@
+openapi: 3.0.3
+
+info:
+  title: rsocket — генератор интеграций с платёжными провайдерами
+  version: "1.0.0"
+  description: |
+    Инструмент читает описание API платёжного провайдера в формате OpenAPI и
+    собирает по нему заготовку интеграции: класс на Ruby под контракт заказчика,
+    инструкцию по подключению, тестовые фикстуры и отчёт о разборе.
+
+    Сервис состоит из двух частей:
+
+    * **сборка** — `POST /build`: описание провайдера на входе, готовые файлы на выходе;
+    * **менеджер правил** — `GET|PUT /rules/...`: правила распознавания и шаблоны
+      интерфейсов, которые можно читать и править прямо здесь. Изменения действуют
+      немедленно: правила перечитываются на каждую сборку.
+
+    Правила и результат лежат в выбранном при запуске хранилище — в локальном
+    каталоге или в S3. Что именно выбрано, видно в `GET /` и `GET /health`.
+
+    Ограничения: описание не больше 8 МБ, сборка синхронная, аутентификации нет —
+    сервис рассчитан на запуск внутри контура разработки.
+
+servers:
+  - url: http://localhost:9292
+    description: локальный запуск (bin/rsocket serve)
+  - url: http://rsocket:9292
+    description: внутри docker compose
+
+tags:
+  - name: Сборка
+    description: Сборка адаптера по описанию провайдера
+  - name: Правила
+    description: Правила распознавания и шаблоны интерфейсов
+  - name: Служебные
+    description: Состояние сервиса и его описание
+
+paths:
+  /:
+    get:
+      tags: [Служебные]
+      summary: Что умеет сервис
+      description: Короткая сводка: какие ручки есть, какой контракт по умолчанию,
+        где лежат правила и куда уходит результат.
+      operationId: getIndex
+      responses:
+        "200":
+          description: Сводка
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Index"
+
+  /health:
+    get:
+      tags: [Служебные]
+      summary: Жив ли сервис
+      description: Ручка для healthcheck. Заодно показывает хранилище правил и
+        список доступных профилей контрактов.
+      operationId: getHealth
+      responses:
+        "200":
+          description: Сервис жив
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Health"
+
+  /openapi.yaml:
+    get:
+      tags: [Служебные]
+      summary: Описание этого API
+      description: Сервис отдаёт собственное описание в том же формате, который сам
+        и разбирает. Его можно открыть в Swagger UI или скормить кодогенератору.
+      operationId: getOpenapi
+      responses:
+        "200":
+          description: Описание OpenAPI
+          content:
+            application/yaml:
+              schema:
+                type: string
+
+  /contracts:
+    get:
+      tags: [Правила]
+      summary: Профили контрактов
+      description: |
+        Под какой интерфейс можно собирать. Профиль задаёт имена ролей (они же имена
+        методов сгенерированного класса), словарь статусов и ошибок, выражения на
+        Ruby и шаблоны выходных файлов.
+      operationId: listContracts
+      responses:
+        "200":
+          description: Список профилей
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  contracts:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/Contract"
+
+  /rules:
+    get:
+      tags: [Правила]
+      summary: Что лежит в хранилище правил
+      operationId: listRules
+      parameters:
+        - name: prefix
+          in: query
+          required: false
+          description: Показать только часть хранилища
+          schema:
+            type: string
+            example: contracts/space_payments/
+      responses:
+        "200":
+          description: Содержимое хранилища
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  location:
+                    type: string
+                    description: Где лежат правила
+                    example: s3://rsocket/rules
+                  files:
+                    type: array
+                    items:
+                      $ref: "#/components/schemas/RuleFile"
+
+  /rules/{key}:
+    parameters:
+      - name: key
+        in: path
+        required: true
+        description: |
+          Ключ файла в хранилище: `base.yml`,
+          `contracts/<профиль>/contract.yml` или
+          `contracts/<профиль>/<шаблон>.erb`.
+        schema:
+          type: string
+          example: contracts/space_payments/contract.yml
+    get:
+      tags: [Правила]
+      summary: Прочитать правила или шаблон
+      operationId: readRule
+      responses:
+        "200":
+          description: Содержимое файла
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  key:
+                    type: string
+                    example: base.yml
+                  content:
+                    type: string
+                    description: Файл целиком
+        "400":
+          $ref: "#/components/responses/BadRequest"
+    put:
+      tags: [Правила]
+      summary: Записать правила или шаблон
+      description: |
+        Содержимое можно передать двумя способами:
+
+        * **телом запроса** — когда правила пишутся руками или отправляются
+          готовым файлом: `curl -X PUT --data-binary @contract.yml ...`;
+        * **файлом из формы** — `multipart/form-data` с полем `file`:
+          `curl -X PUT -F file=@contract.yml ...`.
+
+        YAML проверяется на разбор сразу: испорченные правила не запишутся.
+        Новый профиль создаётся простой записью его файлов — отдельной команды
+        для этого не нужно.
+      operationId: writeRule
+      requestBody:
+        required: true
+        content:
+          text/plain:
+            schema:
+              type: string
+              description: Содержимое файла
+          application/yaml:
+            schema:
+              type: string
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+              required: [file]
+      responses:
+        "200":
+          description: Записано
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  saved:
+                    $ref: "#/components/schemas/SavedFile"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+
+  /build:
+    post:
+      tags: [Сборка]
+      summary: Собрать адаптер по описанию провайдера
+      description: |
+        Тело запроса — описание провайдера в OpenAPI (YAML или JSON). Формат
+        определяется по первому символу, `Content-Type` не важен.
+
+        Имя провайдера участвует в именах: `novapay` → класс `NovapayService`,
+        файл `novapay_service.rb`, переменные окружения `NOVAPAY_*`.
+
+        Результат возвращается целиком в ответе и одновременно складывается в
+        хранилище результата — в `output/<provider>/` или в бакет.
+      operationId: buildAdapter
+      parameters:
+        - name: provider
+          in: query
+          required: true
+          description: Имя провайдера
+          schema:
+            type: string
+            example: novapay
+        - name: contract
+          in: query
+          required: false
+          description: Профиль контракта; по умолчанию тот, что показан в `GET /`
+          schema:
+            type: string
+            example: space_payments
+      requestBody:
+        required: true
+        description: Описание API провайдера
+        content:
+          application/yaml:
+            schema:
+              type: string
+          application/json:
+            schema:
+              type: object
+      responses:
+        "200":
+          description: Собрано
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Build"
+        "400":
+          $ref: "#/components/responses/BadRequest"
+        "422":
+          description: |
+            Описание разобрано, но собрать по нему нельзя: в нём не нашлись
+            обязательные роли контракта.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: "не распознаны обязательные роли: create_request, fetch_status.
+                  Правила распознавания — в app/config/base.yml, роли — в профиле контракта"
+
+components:
+  responses:
+    BadRequest:
+      description: Запрос сформулирован неверно
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          examples:
+            no_provider:
+              summary: Не передан провайдер
+              value:
+                error: не передан обязательный параметр provider
+            empty_body:
+              summary: Пустое тело
+              value:
+                error: "описание API пустое: тело запроса"
+            unknown_contract:
+              summary: Нет такого профиля
+              value:
+                error: "контракт не найден: missing. Известны: plain_client, space_payments"
+
+  schemas:
+    Error:
+      type: object
+      properties:
+        error:
+          type: string
+          description: Что именно не так, словами
+      required: [error]
+
+    Index:
+      type: object
+      properties:
+        service:
+          type: string
+          example: rsocket
+        contract:
+          type: string
+          description: Профиль контракта по умолчанию
+          example: space_payments
+        rules:
+          type: string
+          description: Где лежат правила
+          example: s3://rsocket/rules
+        output:
+          type: string
+          description: Куда уходит результат сборки
+          example: s3://rsocket/output
+        endpoints:
+          type: array
+          items:
+            type: string
+        openapi:
+          type: string
+          example: GET /openapi.yaml
+
+    Health:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [ok]
+        rules:
+          type: string
+          example: локальный каталог /app/app/config
+        contracts:
+          type: array
+          items:
+            type: string
+          example: [plain_client, space_payments]
+
+    Contract:
+      type: object
+      description: Профиль контракта — под какой интерфейс собирается класс
+      properties:
+        name:
+          type: string
+          example: space_payments
+        title:
+          type: string
+          example: контракт Space Payments (Provider::BaseService)
+        default:
+          type: boolean
+          description: Используется ли, когда профиль не указан в запросе
+        files:
+          type: array
+          description: Файлы профиля в хранилище правил
+          items:
+            type: string
+          example: [contract.yml, fixtures.json.erb, integration.md.erb, service.rb.erb]
+        outputs:
+          type: array
+          description: Что профиль печатает на одну сборку
+          items:
+            type: string
+          example: ["<provider>_service.rb", INTEGRATION.md, fixtures.json]
+        roles:
+          type: array
+          items:
+            $ref: "#/components/schemas/Role"
+
+    Role:
+      type: object
+      description: Роль контракта — она же имя метода в сгенерированном классе
+      properties:
+        name:
+          type: string
+          example: create_request
+        title:
+          type: string
+          example: создание выплаты
+        threshold:
+          type: integer
+          description: Минимальный счёт: кандидат ниже порога роль не занимает
+          example: 10
+        required:
+          type: boolean
+          description: Без этой роли сборка остановится, а не напечатает заглушку
+        traits:
+          type: array
+          description: |
+            Что роль значит для сборки:
+            `calls_provider` — для неё планируется запрос к провайдеру;
+            `creates_operation` — из неё берутся тело, лимиты и авторизация;
+            `receives_callback` — её тело описывает уведомление от провайдера.
+          items:
+            type: string
+            enum: [calls_provider, creates_operation, receives_callback]
+
+    RuleFile:
+      type: object
+      properties:
+        key:
+          type: string
+          example: contracts/space_payments/service.rb.erb
+        kind:
+          type: string
+          description: Правила это или шаблон интерфейса
+          enum: [rules, template, other]
+
+    SavedFile:
+      type: object
+      properties:
+        key:
+          type: string
+          example: contracts/space_payments/contract.yml
+        kind:
+          type: string
+          enum: [rules, template, other]
+        bytes:
+          type: integer
+          example: 4821
+
+    Build:
+      type: object
+      properties:
+        provider:
+          type: string
+          example: novapay
+        contract:
+          type: string
+          example: space_payments
+        warnings:
+          type: array
+          description: Всё, в чём инструмент не уверен, и решения, которые стоит проверить
+          items:
+            type: string
+          example:
+            - "сумма провайдера: amount (integer), единицы: копейки"
+            - подпись приходит в заголовке X-NovaPay-Signature
+        locations:
+          type: array
+          description: Куда сложен результат
+          items:
+            type: string
+          example: [s3://rsocket/output/novapay/novapay_service.rb]
+        files:
+          type: object
+          description: Имя файла → его содержимое. Набор файлов задаёт профиль контракта
+          additionalProperties:
+            type: string
+          example:
+            novapay_service.rb: "# frozen_string_literal: true ..."
+            INTEGRATION.md: "# Novapay — инструкция по подключению ..."
+            fixtures.json: "{ \"create_request\": ... }"
+            mapping.yml: "provider: novapay ..."
+        report:
+          $ref: "#/components/schemas/Report"
+
+    Report:
+      type: object
+      description: Как инструмент разобрал описание — то же, что уходит в mapping.yml
+      properties:
+        provider:
+          type: string
+        contract:
+          type: string
+        api:
+          type: string
+          example: NovaPay Payout API 1.0.0
+        base_url:
+          type: string
+          example: https://api.sandbox.novapay.example/v1
+        roles:
+          type: object
+          description: Роль → какая операция провайдера её заняла и почему
+          additionalProperties:
+            $ref: "#/components/schemas/ReportRole"
+        statuses:
+          type: object
+          description: Состояние провайдера → статус контракта
+          additionalProperties:
+            type: string
+          example:
+            completed: approved
+            failed: rejected
+        events:
+          type: object
+          additionalProperties:
+            type: string
+        amount:
+          type: object
+          properties:
+            multiplier:
+              type: integer
+              example: 100
+            note:
+              type: string
+              example: сумма уходит в копейках
+        conditions:
+          type: array
+          items:
+            $ref: "#/components/schemas/Condition"
+        callback:
+          type: object
+          properties:
+            supported:
+              type: boolean
+            signature_header:
+              type: string
+              example: X-NovaPay-Signature
+            algorithm:
+              type: string
+              example: sha256
+            operation_id_field:
+              type: string
+              example: payout_id
+        auth:
+          type: object
+          properties:
+            primary:
+              type: string
+              example: ApiKeyAuth (api_key)
+            alternatives:
+              type: array
+              items:
+                type: string
+            notes:
+              type: array
+              items:
+                type: string
+        warnings:
+          type: array
+          items:
+            type: string
+
+    ReportRole:
+      type: object
+      properties:
+        status:
+          type: string
+          example: запрос к провайдеру
+        operation:
+          type: string
+          example: create_payout
+        endpoint:
+          type: string
+          example: POST /payouts
+        score:
+          type: integer
+          example: 15
+        threshold:
+          type: integer
+          example: 10
+        matched_rules:
+          type: array
+          description: Правила, по которым роль назначена, — словами
+          items:
+            type: string
+        why:
+          type: string
+          description: Почему роль осталась заглушкой
+          example: "лучший кандидат get_balance набрал 6 при пороге 8"
+
+    Condition:
+      type: object
+      description: Предпроверка, найденная в описании провайдера
+      properties:
+        code:
+          type: string
+          example: amount_too_low
+        kind:
+          type: string
+          enum: [min_amount, max_amount, currency]
+        checks:
+          type: string
+          description: Выражение контракта, которое сравнивается с границей
+          example: operation.amount
+        value:
+          description: Граница или список значений
+          oneOf:
+            - type: number
+            - type: array
+              items:
+                type: string
+          example: 1000
+        source:
+          type: string
+          description: Откуда взято — словами, чтобы догадку можно было проверить
+          example: minimum у поля amount в схеме запроса

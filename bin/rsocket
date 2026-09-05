@@ -1,0 +1,133 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "thor"
+require_relative "../app/boot"
+
+# Тонкая командная строка: разбор аргументов и печать результата, вся работа —
+# в менеджере сборок.
+class RsocketCLI < Thor
+  include Controller::Cli::Summary
+
+  CONTRACT = { aliases: "-c", default: Config::Catalog.default,
+               desc: "профиль контракта, под который собираем" }.freeze
+
+  # Пайплайн работает локально: правила с диска, результат в output/. S3 здесь
+  # не нужен, но при желании включается тем же флагом.
+  STORAGE = { default: Config::Storage::LOCAL,
+              desc: "хранилище правил и результата: local или s3" }.freeze
+
+  # @return [Boolean] несобравшийся сервис — повод для ненулевого кода возврата
+  def self.exit_on_failure? = true
+
+  desc "build", "Собрать интеграцию по описанию API провайдера"
+  option :spec, required: true, aliases: "-s", desc: "путь к OpenAPI-описанию"
+  option :provider, required: true, aliases: "-p", desc: "имя провайдера, например novapay"
+  option :out, default: Adapter::Upload::File::DEFAULT_ROOT, aliases: "-o",
+               desc: "каталог для результата при локальном хранилище"
+  option :contract, **CONTRACT
+  option :storage, **STORAGE
+  # @return [void]
+  def build
+    outcome = assembler.call(spec: options[:spec], provider: options[:provider],
+                             contract: options[:contract])
+    print_summary(outcome)
+  rescue StandardError => e
+    warn "не собралось: #{e.message}"
+    exit 1
+  end
+
+  desc "serve", "Поднять HTTP-сервер: те же сборки, но по HTTP"
+  option :host, default: ENV.fetch("RSOCKET_HOST", "127.0.0.1"), aliases: "-H",
+                desc: "адрес, который слушаем; в контейнере нужен 0.0.0.0"
+  option :port, type: :numeric, default: ENV.fetch("RSOCKET_PORT", "9292").to_i, aliases: "-P"
+  option :storage, default: ENV.fetch("RSOCKET_STORAGE", Config::Storage::S3),
+                   desc: "хранилище правил и результата: s3 или local"
+  # @return [void]
+  def serve
+    require "rackup"
+    require "webrick"
+
+    api = Rsocket.api(storage: storage)
+    announce
+    Rackup::Handler::WEBrick.run(api, Host: options[:host], Port: options[:port])
+  rescue StandardError => e
+    warn "не поднялось: #{e.message}"
+    exit 1
+  end
+
+  desc "push", "Скопировать локальные правила и шаблоны в S3"
+  option :prefix, default: "", desc: "перенести только часть: например contracts/space_payments/"
+  # Сервер работает с правилами из бакета, а редактируются они обычно в
+  # репозитории — эта команда переносит их туда, откуда сервер читает.
+  # @return [void]
+  def push
+    say "правила: #{local_rules} → #{remote_rules}"
+    remote.client.ensure_bucket
+    copied = copy_rules
+    copied.each { |key| say "  #{key}" }
+    say "перенесено файлов: #{copied.size}"
+  rescue StandardError => e
+    warn "не перенеслось: #{e.message}"
+    exit 1
+  end
+
+  desc "contracts", "Показать профили контрактов, под которые можно собирать"
+  option :storage, **STORAGE
+  # @return [void]
+  def contracts
+    library.profiles.each do |profile|
+      mark = profile.fetch(:default) ? "*" : " "
+      say format("%<mark>s %-16<name>s %<title>s", mark: mark, name: profile.fetch(:name),
+                                                   title: profile.fetch(:title))
+    end
+  end
+
+  desc "doctor", "Показать правила, по которым инструмент разбирает описания"
+  option :contract, **CONTRACT
+  option :storage, **STORAGE
+  # @return [void]
+  def doctor
+    rules = Config::Importer.new(options[:contract], catalog: catalog).call
+    print_rules(options[:contract], rules, storage)
+  end
+
+  private
+
+  # @return [Config::Storage] выбранное хранилище
+  def storage = @storage ||= Config::Storage.new(kind: options.fetch(:storage))
+
+  # @return [Config::Catalog] раскладка правил поверх хранилища
+  def catalog = @catalog ||= Config::Catalog.new(store: storage.rules)
+
+  # @return [Service::BuildManager::Library]
+  def library = Service::BuildManager::Library.new(catalog: catalog)
+
+  # @return [Service::BuildManager::Assembler] сборщик на выбранном хранилище
+  def assembler = Service::BuildManager::Assembler.new(catalog: catalog, uploader: uploader)
+
+  # @return [Adapter::Upload::Store] куда складываем результат
+  def uploader
+    return storage.uploader if storage.s3?
+
+    Adapter::Upload::File.new(root: options.fetch("out", Adapter::Upload::File::DEFAULT_ROOT))
+  end
+
+  # @return [Repositories::Rules::Local] правила в репозитории
+  def local_rules = @local_rules ||= Repositories::Rules::Local.new
+
+  # @return [Config::Storage] хранилище в S3, куда переносим правила
+  def remote = @remote ||= Config::Storage.new(kind: Config::Storage::S3)
+
+  # @return [Repositories::Rules::S3] правила в бакете
+  def remote_rules = remote.rules
+
+  # @return [Array<String>] перенесённые ключи
+  def copy_rules
+    local_rules.list(options[:prefix]).each do |key|
+      remote_rules.write(key, local_rules.read(key))
+    end
+  end
+end
+
+RsocketCLI.start(ARGV)

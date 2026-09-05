@@ -1,0 +1,115 @@
+# Контракт «обычный клиент»: класс ни от кого не наследуется, принимает платёж
+# хешем, успех возвращает значением, а отказ провайдера поднимает исключением.
+# Нужен, чтобы было видно: инструмент не привязан к одному интерфейсу — роли,
+# словарь состояний и выражения здесь другие, а правила распознавания чужого API
+# те же самые, из app/config/base.yml.
+
+contract:
+  title: обычный клиент на исключениях
+  class_suffix: Client
+  outputs:
+    - { template: client.rb.erb, file: "%<provider>s_client.rb" }
+    - { template: integration.md.erb, file: INTEGRATION.md }
+    - { template: fixtures.json.erb, file: fixtures.json }
+
+http:
+  open_timeout: 5
+  read_timeout: 15
+  user_agent: "payouts-client/1.0"
+
+classification:
+  # Роли называются как методы этого контракта, а узнаются по тем же архетипам.
+  order: [send_payout, payout_state, read_callback, cancel_payout]
+  required: [send_payout, payout_state]
+  thresholds:
+    default: 8
+    send_payout: 10
+  status_sources: [payout_state, send_payout, read_callback]
+  roles:
+    send_payout:
+      title: отправка выплаты
+      archetype: creation
+      traits: [calls_provider, creates_operation]
+    payout_state:
+      title: состояние выплаты
+      archetype: status_lookup
+      traits: [calls_provider]
+    read_callback:
+      title: разбор уведомления
+      archetype: callback
+      traits: [receives_callback]
+    cancel_payout:
+      title: отмена выплаты
+      archetype: cancellation
+      traits: [calls_provider]
+
+# Свой словарь состояний: клиент отдаёт их символами.
+statuses:
+  paid: settled
+  declined: failed
+  pending: pending
+
+# Символ HTTP-статуса этому контракту не нужен — он поднимает исключение, а не
+# возвращает ответ. Записи состоят из кода ошибки и того, что с ней делать.
+errors:
+  default: { code: unknown_error, action: alert }
+  semantics:
+    bad_request: { code: invalid_request, action: reject }
+    validation: { code: invalid_request, action: reject }
+    credentials: { code: bad_credentials, action: alert }
+    forbidden: { code: forbidden, action: alert }
+    insufficient_funds: { code: insufficient_funds, action: retry_later }
+    not_found: { code: not_found, action: reject }
+    conflict: { code: duplicate, action: reject }
+    rate_limit: { code: rate_limited, action: retry_backoff }
+    internal: { code: provider_error, action: retry }
+    bad_gateway: { code: provider_error, action: retry }
+    unavailable: { code: provider_down, action: retry }
+    timeout: { code: provider_timeout, action: retry }
+
+# Платёж приходит хешем, реквизиты лежат в payment[:recipient].
+sources:
+  payload:
+    amount: 'provider_amount(payment)'
+    currency: 'payment[:currency]'
+    external_id: 'payment[:external_id]'
+    description: 'payment[:description]'
+  requisite:
+    type: 'recipient(payment, "type")'
+    phone: 'recipient(payment, "phone")'
+    card_token: 'recipient(payment, "card_token")'
+    card_number: 'recipient(payment, "card_number")'
+    account: 'recipient(payment, "account")'
+    name: 'recipient(payment, "name")'
+    bank_code: 'recipient(payment, "bank_code")'
+    bank_name: 'recipient(payment, "bank_name")'
+    inn: 'recipient(payment, "inn")'
+    kpp: 'recipient(payment, "kpp")'
+  path:
+    provider_id: 'provider_id'
+  headers:
+    idempotency: 'payment[:external_id]'
+
+amount:
+  integer_minor: '(payment.fetch(:amount) * 100).to_i'
+  integer_major: 'payment.fetch(:amount).to_i'
+  decimal_string: 'format("%.2f", payment.fetch(:amount))'
+  string: 'payment.fetch(:amount).to_s'
+  number: 'payment.fetch(:amount).to_f'
+
+conditions:
+  min_amount: { code: amount_below_minimum, constant: MIN_AMOUNT, subject: 'payment.fetch(:amount)' }
+  max_amount: { code: amount_above_maximum, constant: MAX_AMOUNT, subject: 'payment.fetch(:amount)' }
+  currency: { code: currency_not_supported, constant: ALLOWED_CURRENCIES, subject: 'payment[:currency]' }
+
+# Ключи клиент берёт из окружения — контекста провайдера у него нет.
+authorization:
+  api_key_header: 'message["%<parameter>s"] = credential(:api_key)'
+  api_key_query: '# Ключ уходит в строке запроса — см. build_uri.'
+  query_pair: '{ "%<parameter>s" => credential(:api_key) }'
+  bearer: 'message["Authorization"] = "Bearer #{credential(:access_token)}"'
+  basic: 'message.basic_auth(credential(:username).to_s, credential(:password).to_s)'
+  unsupported: '# TODO: схема %<name>s не поддержана — подпишите запрос здесь'
+  missing: '# TODO: в описании нет securitySchemes — подпишите запрос здесь'
+  comment: 'Авторизация: %<name>s (%<kind>s).'
+  comment_missing: 'В описании провайдера нет securitySchemes.'

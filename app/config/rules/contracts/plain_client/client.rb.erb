@@ -1,0 +1,314 @@
+# frozen_string_literal: true
+
+# Клиент собран инструментом rsocket по описанию OpenAPI под контракт
+# <%= contract %>. Правила разбора живут в app/config/rules/contracts/<%= contract %>/,
+# решения по каждой роли — в mapping.yml рядом с этим файлом. Правки здесь затрёт
+# следующий прогон.
+
+require "json"
+require "net/http"
+require "openssl"
+require "uri"
+
+module Payouts
+  # Клиент провайдера <%= provider %>. Платёж принимается хешем, успех возвращается
+  # значением, отказ провайдера — исключением ProviderError.
+  class <%= class_name %>
+    ENV_PREFIX = "<%= env_prefix %>"
+    BASE_URL = ENV.fetch("#{ENV_PREFIX}_BASE_URL", "<%= base_url %>")
+    OPEN_TIMEOUT = <%= http.fetch(:open_timeout) %>
+    READ_TIMEOUT = <%= http.fetch(:read_timeout) %>
+    USER_AGENT = "<%= http.fetch(:user_agent) %>"
+
+    # Состояния провайдера в терминах контракта. Ключи в нижнем регистре: часть
+    # провайдеров пишет состояния капсом.
+    STATE_MAP = {
+      <%= status_entries.map { |token, state| "\"#{token}\" => :#{state}" }.join(",\n      ") %>
+    }.freeze
+<% if event_map.any? -%>
+
+    # События webhook в терминах контракта.
+    EVENT_MAP = {
+      <%= event_map.map { |event, state| "\"#{event}\" => :#{state}" }.join(",\n      ") %>
+    }.freeze
+<% end -%>
+
+    # HTTP-код провайдера → код ошибки контракта.
+    ERROR_MAP = {
+<% error_entries.each do |code, entry| -%>
+      <%= code %> => :<%= entry.fetch(:code) %>,
+<% end -%>
+      default: :unknown_error
+    }.freeze
+
+    # Ошибки, после которых запрос имеет смысл повторить. Обрыв связи сюда же:
+    # до провайдера не дошли, значит он ничего не изменил.
+    RETRIABLE = %i[transport_error <%= error_codes_for("retry").join(" ") %>].freeze
+<% constraint_constants.each do |name, value, source| -%>
+
+    # Источник: <%= source %>.
+    <%= name %> = <%= value %>
+<% end -%>
+<% if signature? -%>
+
+    SIGNATURE_HEADER = "<%= callback.signature_header %>"
+    SIGNATURE_ALGORITHM = "<%= callback.signature_algorithm %>"
+<% end -%>
+
+    # Провайдер ответил отказом. Код — из словаря контракта, а не из описания.
+    class ProviderError < StandardError
+      attr_reader :code, :http_code
+
+      def initialize(code, http_code, detail = nil)
+        @code = code
+        @http_code = http_code
+        super([code, "HTTP #{http_code}", detail].compact.join(", "))
+      end
+
+      def retriable? = RETRIABLE.include?(code)
+    end
+
+    # Платёж не проходит ограничения провайдера — до сети дело не дойдёт.
+    InvalidPayment = Class.new(StandardError)
+
+    # Ответ провайдера: код, разобранное тело и причина, если до него не дошли.
+    Response = Struct.new(:code, :body, :error) do
+      def success? = error.nil? && code.between?(200, 299)
+    end
+
+    # Ограничения провайдера, найденные в его описании.
+    # @raise [InvalidPayment] платёж заведомо не пройдёт
+<% if constraint_checks.empty? -%>
+    def check!(_payment) = true
+<% else -%>
+    def check!(payment)
+<% constraint_checks.each do |condition, code| -%>
+      raise InvalidPayment, "<%= code %>" <%= condition %>
+<% end -%>
+
+      true
+    end
+<% end -%>
+
+<% origin(:send_payout).each do |line| -%>
+    # <%= line %>.
+<% end -%>
+    # @param payment [Hash] платёж заказчика
+    # @return [String] идентификатор операции у провайдера
+    def send_payout(payment)
+      check!(payment)
+      body = <%= request_for(:send_payout, "send_payout_body(payment)") %>
+      dig_body(body, <%= path_literal(created_id_field) %>)
+    end
+
+<% origin(:payout_state).each do |line| -%>
+    # <%= line %>.
+<% end -%>
+    # @param provider_id [String] идентификатор операции у провайдера
+    # @return [Symbol] состояние в терминах контракта
+    def payout_state(provider_id<% if body?(:payout_state) %>, payment<% end %>)
+      body = <%= request_for(:payout_state, "payout_state_body(payment)") %>
+      state(dig_body(body, <%= path_literal(status_field) %>))
+    end
+<% if call_for(:cancel_payout) -%>
+
+<% origin(:cancel_payout).each do |line| -%>
+    # <%= line %>.
+<% end -%>
+    # @param provider_id [String] идентификатор операции у провайдера
+    # @return [Symbol] состояние после отмены
+    def cancel_payout(provider_id<% if body?(:cancel_payout) %>, payment<% end %>)
+      body = <%= request_for(:cancel_payout, "cancel_payout_body(payment)") %>
+      state(dig_body(body, <%= path_literal(status_field) %>))
+    end
+<% end -%>
+
+<% if bound?(:read_callback) -%>
+<% origin(:read_callback).each do |line| -%>
+    # <%= line %>.
+<% end -%>
+    # @param payload [Hash] тело уведомления, при проверке подписи — с ключами
+    #   "headers" и "raw_body"
+    # @return [Hash] { id:, state:, error: }
+    def read_callback(payload)
+<% if signature? -%>
+      raise ProviderError.new(:invalid_signature, 0) unless valid_signature?(payload)
+
+<% end -%>
+      {
+        id: dig_body(payload, <%= path_literal(callback.operation_path || ["id"]) %>),
+        state: callback_state(payload),
+<% if callback.error_path -%>
+        error: dig_body(payload, <%= path_literal(callback.error_path) %>)
+<% else -%>
+        error: nil # в описании webhook нет поля с кодом ошибки
+<% end -%>
+      }
+    end
+<% else -%>
+    # Webhook в описании провайдера не найден: <%= binding_for(:read_callback).explanation %>.
+    # Состояние узнаётся опросом payout_state.
+    def read_callback(_payload)
+      raise NotImplementedError, "провайдер не описывает webhook"
+    end
+<% end -%>
+
+    private
+
+    # Один запрос к провайдеру: адрес, авторизация, JSON туда и обратно. Ответ с
+    # кодом ошибки превращается в исключение — это и есть контракт клиента.
+    def request(http_method, path, body: nil, query: {}, headers: {})
+      uri = build_uri(path, query)
+      response = perform(uri, build_request(http_method, uri, body, headers))
+      return response.body if response.success?
+      raise ProviderError.new(:transport_error, 0, response.error) if response.error
+
+      raise ProviderError.new(ERROR_MAP.fetch(response.code, ERROR_MAP.fetch(:default)),
+                              response.code, response.body["error"])
+    end
+
+    def build_uri(path, query)
+      uri = URI.parse("#{BASE_URL.chomp("/")}#{path}")
+<% if credentials.query_pair -%>
+      # Провайдер ждёт ключ в строке запроса, а не в заголовке.
+      parameters = query.compact.merge(<%= credentials.query_pair %>)
+<% else -%>
+      parameters = query.compact
+<% end -%>
+      uri.query = URI.encode_www_form(parameters) unless parameters.empty?
+      uri
+    end
+
+    def build_request(http_method, uri, body, headers)
+      message = Net::HTTP.const_get(http_method.to_s.capitalize).new(uri)
+      default_headers.merge(headers.compact).each { |name, value| message[name] = value.to_s }
+      message.body = JSON.generate(body) unless body.nil?
+      authorize(message)
+      message
+    end
+
+    def perform(uri, message)
+      raw = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https",
+                                                open_timeout: OPEN_TIMEOUT,
+                                                read_timeout: READ_TIMEOUT) do |http|
+        http.request(message)
+      end
+      Response.new(raw.code.to_i, parse_body(raw.body), nil)
+    rescue Timeout::Error, IOError, SystemCallError, OpenSSL::SSL::SSLError => e
+      Response.new(0, {}, e.message)
+    end
+
+    def default_headers
+      { "Content-Type" => "application/json", "Accept" => "application/json",
+        "User-Agent" => USER_AGENT }
+    end
+
+<% credentials.comment.each do |line| -%>
+    # <%= line %>
+<% end -%>
+    def authorize(message)
+<% credentials.lines.each do |line| -%>
+      <%= line %>
+<% end -%>
+    end
+
+    # У клиента нет контекста провайдера: ключи берутся из окружения.
+    def credential(name)
+      ENV.fetch("#{ENV_PREFIX}_#{name.to_s.upcase}", nil)
+    end
+
+    def parse_body(raw)
+      return {} if raw.nil? || raw.empty?
+
+      JSON.parse(raw)
+    rescue JSON::ParserError
+      { "raw" => raw }
+    end
+<% if body?(:send_payout) -%>
+
+    # Тело запроса. Имена полей — как у провайдера: тело уходит в JSON без
+    # переименований.
+    def send_payout_body(payment)
+      {
+<%= payload_literal(call_for(:send_payout).payload, 8) %>
+      }
+    end
+<% end -%>
+<% if body?(:payout_state) -%>
+
+    def payout_state_body(payment)
+      {
+<%= payload_literal(call_for(:payout_state).payload, 8) %>
+      }
+    end
+<% end -%>
+<% if body?(:cancel_payout) -%>
+
+    def cancel_payout_body(payment)
+      {
+<%= payload_literal(call_for(:cancel_payout).payload, 8) %>
+      }
+    end
+<% end -%>
+
+    # Сумма в том виде, в каком её ждёт провайдер.
+    def provider_amount(payment)
+      <%= amount_expression %>
+    end
+
+    # Реквизиты получателя лежат в payment[:recipient].
+    def recipient(payment, key)
+      store = payment[:recipient] || payment["recipient"] || {}
+      store[key] || store[key.to_sym]
+    end
+
+    # Неизвестное состояние безопаснее считать незавершённым, чем закрыть выплату.
+    def state(value)
+      STATE_MAP.fetch(value.to_s.strip.downcase, :pending)
+    end
+<% if bound?(:read_callback) -%>
+
+    def callback_state(payload)
+<% if event_map.any? && callback.event_path -%>
+      event = dig_body(payload, <%= path_literal(callback.event_path) %>)
+      return EVENT_MAP[event.to_s] if EVENT_MAP.key?(event.to_s)
+
+<% end -%>
+      state(dig_body(payload, <%= path_literal(callback.status_path || ["status"]) %>))
+    end
+<% end -%>
+<% if signature? -%>
+
+    # Подпись: <%= callback.signature_algorithm.upcase %> от тела запроса. Заголовки
+    # ожидаются в payload["headers"], сырое тело — в payload["raw_body"].
+    def valid_signature?(payload)
+      secret = credential(:callback_secret)
+      return true if secret.nil?
+
+      received = callback_signature(payload).to_s
+      expected = OpenSSL::HMAC.hexdigest(SIGNATURE_ALGORITHM, secret, callback_body(payload))
+      received.bytesize == expected.bytesize && OpenSSL.secure_compare(received, expected)
+    end
+
+    def callback_signature(payload)
+      headers = payload["headers"] || payload[:headers] || {}
+      headers.to_h.find { |name, _| name.to_s.casecmp?(SIGNATURE_HEADER) }&.last
+    end
+
+    def callback_body(payload)
+      payload["raw_body"] || payload[:raw_body] ||
+        payload.to_h.reject { |key, _| %w[headers raw_body].include?(key.to_s) }.to_json
+    end
+<% end -%>
+
+    # Тело ответа и тело webhook — обычные хеши: имена полей провайдер задал сам,
+    # поэтому ключи не переименовываем, но принимаем и символы.
+    def dig_body(body, *path)
+      path.reduce(body) do |node, key|
+        break nil unless node.respond_to?(:[])
+
+        node[key] || node[key.to_sym]
+      end
+    end
+  end
+end

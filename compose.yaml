@@ -1,0 +1,78 @@
+# Поднять сервис:   docker compose up --build
+# Разовая сборка:   docker compose run --rm rsocket \
+#                     bundle exec bin/rsocket build -s examples/novapay/provider_api.yaml -p novapay
+#
+# Сервер работает через S3: правила читает из бакета, результат складывает туда же.
+# Командная строка остаётся локальной — ей ни бакет, ни MinIO не нужны.
+# Чтобы обойтись совсем без S3, достаточно RSOCKET_STORAGE=local у сервиса rsocket.
+
+x-s3: &s3
+  RSOCKET_S3_ENDPOINT: http://minio:9000
+  RSOCKET_S3_BUCKET: rsocket
+  RSOCKET_S3_ACCESS_KEY_ID: rsocket
+  RSOCKET_S3_SECRET_ACCESS_KEY: rsocket-secret
+  RSOCKET_S3_REGION: us-east-1
+
+services:
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: rsocket
+      MINIO_ROOT_PASSWORD: rsocket-secret
+    ports:
+      - "${MINIO_PORT:-9000}:9000"
+      - "${MINIO_CONSOLE_PORT:-9001}:9001"
+    volumes:
+      - minio:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+
+  # Правила редактируются в репозитории, а сервер читает их из бакета — этот шаг
+  # переносит их туда. Отрабатывает один раз и завершается.
+  rules:
+    build: .
+    image: rsocket:latest
+    command: bundle exec bin/rsocket push
+    environment:
+      <<: *s3
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+
+  rsocket:
+    build: .
+    image: rsocket:latest
+    ports:
+      - "${RSOCKET_PORT:-9292}:9292"
+    environment:
+      <<: *s3
+      # Чем сервер пользуется: s3 — правила и результат в бакете, local — на диске.
+      RSOCKET_STORAGE: "${RSOCKET_STORAGE:-s3}"
+      RSOCKET_CONTRACT: "${RSOCKET_CONTRACT:-space_payments}"
+    volumes:
+      # Результаты разовых сборок через docker compose run остаются на хосте.
+      - ./output:/app/output
+      # Локальные правила подключены снаружи: они нужны команде push и работе
+      # с RSOCKET_STORAGE=local. Подключены только данные — код остаётся в образе.
+      - ./app/config/rules:/app/app/config/rules:ro
+    depends_on:
+      minio:
+        condition: service_healthy
+      rules:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:9292/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+      start_period: 5s
+    restart: unless-stopped
+
+volumes:
+  minio:

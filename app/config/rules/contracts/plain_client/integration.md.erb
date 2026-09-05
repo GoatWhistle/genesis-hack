@@ -1,0 +1,143 @@
+# <%= provider.capitalize %> — инструкция по подключению
+
+Собрано инструментом rsocket по описанию OpenAPI под <%= contract %>.
+Класс: `Payouts::<%= class_name %>`, ни от чего не наследуется.
+Базовый адрес: `<%= base_url %>`.
+
+Платёж передаётся хешем, успех возвращается значением, отказ провайдера — исключением
+`ProviderError` с полями `code`, `http_code` и `retriable?`.
+
+Файл сгенерирован. Правки затрёт следующий прогон — правьте правила и пересобирайте.
+
+## Настройка
+
+| Переменная окружения | Назначение |
+|---|---|
+<% env_variables.each do |name| -%>
+| `<%= name %>` | <%= name.end_with?("BASE_URL") ? "адрес провайдера; по умолчанию адрес из описания" : "ключ авторизации" %> |
+<% end -%>
+<% if signature? -%>
+| `<%= env_prefix %>_CALLBACK_SECRET` | секрет для проверки подписи уведомлений |
+<% end -%>
+
+Таймауты: соединение <%= http.fetch(:open_timeout) %> с, ответ <%= http.fetch(:read_timeout) %> с.
+
+## Авторизация
+
+<% if credentials.primary -%>
+- Тип: **<%= credentials.primary.kind %>** (схема `<%= credentials.primary.name %>` из описания)
+- Куда: <%= credentials.primary.location == "query" ? "параметр строки запроса" : "заголовок" %> `<%= credentials.primary.parameter %>`
+- Что нужно: <%= credentials.primary.credentials.map { |key| "`#{key}`" }.join(", ") %>
+<% unless credentials.alternatives.empty? -%>
+- Провайдер также принимает: <%= credentials.alternatives.map { |scheme| "`#{scheme.name}` (#{scheme.kind})" }.join(", ") %>
+<% end -%>
+<% else -%>
+В описании провайдера нет `securitySchemes` — подпишите запрос руками в методе `authorize`.
+<% end -%>
+
+## Методы
+
+| Метод | Endpoint | Назначение | Заголовки |
+|---|---|---|---|
+<% bindings.each do |role, item| -%>
+| `<%= role %>` | <%= item.bound? ? item.endpoint : "—" %> | <%= item.role.title %> | <%= (call_for(role)&.headers&.keys || []).join(", ") %> |
+<% end -%>
+
+<% bindings.each_value do |item| -%>
+<% next if item.bound? -%>
+Роль `<%= item.role_name %>` не распознана: <%= item.explanation %>.
+<% end -%>
+
+## Состояния
+
+| Состояние провайдера | Что вернёт клиент |
+|---|---|
+<% status_entries.each do |token, status| -%>
+| `<%= token %>` | `:<%= status %>` |
+<% end -%>
+
+Незнакомое состояние клиент считает `:pending`.
+<% if event_map.any? %>
+### События уведомлений
+
+| Событие | Что вернёт клиент |
+|---|---|
+<% event_map.each do |event, status| -%>
+| `<%= event %>` | `:<%= status %>` |
+<% end -%>
+<% end %>
+## Ошибки
+
+Каждая строка — это `ProviderError` с таким `code`.
+
+| HTTP | `error.code` | Действие | `retriable?` |
+|---|---|---|---|
+<% error_entries.each do |code, entry| -%>
+| <%= code %> | `:<%= entry.fetch(:code) %>` | <%= entry.fetch(:action) %> | <%= entry.fetch(:action).start_with?("retry") ? "да" : "нет" %> |
+<% end -%>
+
+Обрыв связи — это `ProviderError` с кодом `:transport_error`, он тоже повторяемый: до провайдера
+запрос не дошёл, значит ничего не изменил.
+
+## Предпроверки
+
+<% if constraints.empty? -%>
+Ограничений в описании провайдера не нашлось.
+<% else -%>
+`check!` поднимает `InvalidPayment` до обращения к сети:
+
+| Код | Значение | Откуда взято |
+|---|---|---|
+<% constraints.each do |item| -%>
+| `<%= item.code %>` | `<%= item.value.inspect %>` | <%= item.source %> |
+<% end -%>
+<% end -%>
+
+Сумма уходит провайдеру как `<%= amount_expression %>`<%= amount_multiplier == 1 ? "" : " — то есть в минимальных единицах" %>.
+
+## Уведомления
+
+<% if callback.supported -%>
+Эндпоинт: `<%= callback_endpoint %>`. Метод `read_callback` возвращает
+`{ id:, state:, error: }`.
+
+| Что | Где в теле |
+|---|---|
+| идентификатор операции | `<%= Array(callback.operation_path).join(".") %>` |
+<% if callback.event_path -%>
+| событие | `<%= Array(callback.event_path).join(".") %>` |
+<% end -%>
+<% if callback.status_path -%>
+| состояние | `<%= Array(callback.status_path).join(".") %>` |
+<% end -%>
+<% if callback.error_path -%>
+| код ошибки | `<%= Array(callback.error_path).join(".") %>` |
+<% end -%>
+
+<% if signature? -%>
+Подпись: `<%= callback.signature_algorithm.upcase %>(тело, callback_secret)` → hex → заголовок
+`<%= callback.signature_header %>`. Заголовки ожидаются в `payload["headers"]`, сырое тело — в
+`payload["raw_body"]`.
+<% else -%>
+Подпись в описании не найдена — проверять нечего.
+<% end -%>
+<% else -%>
+Провайдер не описывает webhook: `read_callback` поднимает `NotImplementedError`, состояние
+узнаётся опросом `payout_state`.
+<% end -%>
+
+## Что проверить руками
+
+<% if warnings.empty? -%>
+Инструмент не оставил замечаний.
+<% else -%>
+<% warnings.each do |warning| -%>
+- <%= warning %>
+<% end -%>
+<% end -%>
+
+## Файлы рядом
+
+- `<%= provider %>_client.rb` — сам клиент;
+- `fixtures.json` — примеры запросов, ответов и уведомлений;
+- `mapping.yml` — как инструмент разобрал описание: роли, счёт, сработавшие правила.
