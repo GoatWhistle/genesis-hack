@@ -59,12 +59,16 @@ module Payouts
     class ProviderError < StandardError
       attr_reader :code, :http_code
 
+      # @param code [Symbol] код ошибки контракта
+      # @param http_code [Integer] код ответа провайдера, 0 — до него не дошли
+      # @param detail [String, nil] пояснение провайдера
       def initialize(code, http_code, detail = nil)
         @code = code
         @http_code = http_code
         super([code, "HTTP #{http_code}", detail].compact.join(", "))
       end
 
+      # @return [Boolean] есть ли смысл повторить запрос
       def retriable? = RETRIABLE.include?(code)
     end
 
@@ -73,14 +77,20 @@ module Payouts
 
     # Ответ провайдера: код, разобранное тело и причина, если до него не дошли.
     Response = Struct.new(:code, :body, :error) do
+      # @return [Boolean] ответ дошёл и провайдер не отказал
       def success? = error.nil? && code.between?(200, 299)
     end
 
     # Ограничения провайдера, найденные в его описании.
-    # @raise [InvalidPayment] платёж заведомо не пройдёт
 <% if constraint_checks.empty? -%>
+    # В описании провайдера ограничений нет — проверять нечего.
+    # @param _payment [Hash] платёж заказчика
+    # @return [true]
     def check!(_payment) = true
 <% else -%>
+    # @param payment [Hash] платёж заказчика
+    # @return [true] платёж проходит ограничения провайдера
+    # @raise [InvalidPayment] платёж заведомо не пройдёт
     def check!(payment)
 <% constraint_checks.each do |condition, code| -%>
       raise InvalidPayment, "<%= code %>" <%= condition %>
@@ -95,6 +105,8 @@ module Payouts
 <% end -%>
     # @param payment [Hash] платёж заказчика
     # @return [String] идентификатор операции у провайдера
+    # @raise [InvalidPayment] платёж не проходит ограничения провайдера
+    # @raise [ProviderError] провайдер отказал или до него не дошли
     def send_payout(payment)
       check!(payment)
       body = <%= request_for(:send_payout, "send_payout_body(payment)") %>
@@ -105,7 +117,11 @@ module Payouts
     # <%= line %>.
 <% end -%>
     # @param provider_id [String] идентификатор операции у провайдера
+<% if body?(:payout_state) -%>
+    # @param payment [Hash] платёж заказчика: провайдер ждёт запрос с телом
+<% end -%>
     # @return [Symbol] состояние в терминах контракта
+    # @raise [ProviderError] провайдер отказал или до него не дошли
     def payout_state(provider_id<% if body?(:payout_state) %>, payment<% end %>)
       body = <%= request_for(:payout_state, "payout_state_body(payment)") %>
       state(dig_body(body, <%= path_literal(status_field) %>))
@@ -116,7 +132,11 @@ module Payouts
     # <%= line %>.
 <% end -%>
     # @param provider_id [String] идентификатор операции у провайдера
+<% if body?(:cancel_payout) -%>
+    # @param payment [Hash] платёж заказчика: провайдер ждёт запрос с телом
+<% end -%>
     # @return [Symbol] состояние после отмены
+    # @raise [ProviderError] провайдер отказал или до него не дошли
     def cancel_payout(provider_id<% if body?(:cancel_payout) %>, payment<% end %>)
       body = <%= request_for(:cancel_payout, "cancel_payout_body(payment)") %>
       state(dig_body(body, <%= path_literal(status_field) %>))
@@ -130,6 +150,9 @@ module Payouts
     # @param payload [Hash] тело уведомления, при проверке подписи — с ключами
     #   "headers" и "raw_body"
     # @return [Hash] { id:, state:, error: }
+<% if signature? -%>
+    # @raise [ProviderError] подпись уведомления не сходится
+<% end -%>
     def read_callback(payload)
 <% if signature? -%>
       raise ProviderError.new(:invalid_signature, 0) unless valid_signature?(payload)
@@ -148,6 +171,8 @@ module Payouts
 <% else -%>
     # Webhook в описании провайдера не найден: <%= binding_for(:read_callback).explanation %>.
     # Состояние узнаётся опросом payout_state.
+    # @param _payload [Hash] тело уведомления, читать его нечем
+    # @raise [NotImplementedError] всегда: провайдер не описывает webhook
     def read_callback(_payload)
       raise NotImplementedError, "провайдер не описывает webhook"
     end
@@ -157,6 +182,13 @@ module Payouts
 
     # Один запрос к провайдеру: адрес, авторизация, JSON туда и обратно. Ответ с
     # кодом ошибки превращается в исключение — это и есть контракт клиента.
+    # @param http_method [Symbol] :get, :post и так далее
+    # @param path [String] адрес с уже подставленными параметрами
+    # @param body [Hash, nil] тело запроса
+    # @param query [Hash] параметры строки запроса
+    # @param headers [Hash] заголовки сверх обычных
+    # @return [Hash] разобранное тело успешного ответа
+    # @raise [ProviderError] провайдер отказал или до него не дошли
     def request(http_method, path, body: nil, query: {}, headers: {})
       uri = build_uri(path, query)
       response = perform(uri, build_request(http_method, uri, body, headers))
@@ -167,6 +199,9 @@ module Payouts
                               response.code, response.body["error"])
     end
 
+    # @param path [String] адрес без имени хоста
+    # @param query [Hash] параметры строки запроса
+    # @return [URI] адрес, по которому уходит запрос
     def build_uri(path, query)
       uri = URI.parse("#{BASE_URL.chomp("/")}#{path}")
 <% if credentials.query_pair -%>
@@ -179,6 +214,11 @@ module Payouts
       uri
     end
 
+    # @param http_method [Symbol] :get, :post и так далее
+    # @param uri [URI] адрес запроса
+    # @param body [Hash, nil] тело запроса
+    # @param headers [Hash] заголовки сверх обычных
+    # @return [Net::HTTPRequest] подписанный запрос
     def build_request(http_method, uri, body, headers)
       message = Net::HTTP.const_get(http_method.to_s.capitalize).new(uri)
       default_headers.merge(headers.compact).each { |name, value| message[name] = value.to_s }
@@ -187,6 +227,9 @@ module Payouts
       message
     end
 
+    # @param uri [URI] адрес запроса
+    # @param message [Net::HTTPRequest] подписанный запрос
+    # @return [Response] с причиной в error, если до провайдера не дошли
     def perform(uri, message)
       raw = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https",
                                                 open_timeout: OPEN_TIMEOUT,
@@ -198,6 +241,7 @@ module Payouts
       Response.new(0, {}, e.message)
     end
 
+    # @return [Hash{String => String}] заголовки, которые уходят с любым запросом
     def default_headers
       { "Content-Type" => "application/json", "Accept" => "application/json",
         "User-Agent" => USER_AGENT }
@@ -206,6 +250,8 @@ module Payouts
 <% credentials.comment.each do |line| -%>
     # <%= line %>
 <% end -%>
+    # @param message [Net::HTTPRequest] запрос, который подписываем
+    # @return [void]
     def authorize(message)
 <% credentials.lines.each do |line| -%>
       <%= line %>
@@ -213,10 +259,15 @@ module Payouts
     end
 
     # У клиента нет контекста провайдера: ключи берутся из окружения.
+    # @param name [Symbol] имя ключа схемы авторизации
+    # @return [String, nil] значение ключа
     def credential(name)
       ENV.fetch("#{ENV_PREFIX}_#{name.to_s.upcase}", nil)
     end
 
+    # Пустое тело у 204 — обычное дело, а нераспознанное отдаём как есть.
+    # @param raw [String, nil] тело ответа как есть
+    # @return [Hash] разобранное тело; нераспознанное лежит под ключом "raw"
     def parse_body(raw)
       return {} if raw.nil? || raw.empty?
 
@@ -228,6 +279,8 @@ module Payouts
 
     # Тело запроса. Имена полей — как у провайдера: тело уходит в JSON без
     # переименований.
+    # @param payment [Hash] платёж заказчика
+    # @return [Hash] тело запроса
     def send_payout_body(payment)
       {
 <%= payload_literal(call_for(:send_payout).payload, 8) %>
@@ -236,6 +289,8 @@ module Payouts
 <% end -%>
 <% if body?(:payout_state) -%>
 
+    # @param payment [Hash] платёж заказчика
+    # @return [Hash] тело запроса
     def payout_state_body(payment)
       {
 <%= payload_literal(call_for(:payout_state).payload, 8) %>
@@ -244,6 +299,8 @@ module Payouts
 <% end -%>
 <% if body?(:cancel_payout) -%>
 
+    # @param payment [Hash] платёж заказчика
+    # @return [Hash] тело запроса
     def cancel_payout_body(payment)
       {
 <%= payload_literal(call_for(:cancel_payout).payload, 8) %>
@@ -252,22 +309,31 @@ module Payouts
 <% end -%>
 
     # Сумма в том виде, в каком её ждёт провайдер.
+    # @param payment [Hash] платёж заказчика
+    # @return [Integer, Float, String] сумма в единицах провайдера
     def provider_amount(payment)
       <%= amount_expression %>
     end
 
     # Реквизиты получателя лежат в payment[:recipient].
+    # @param payment [Hash] платёж заказчика
+    # @param key [String] имя реквизита у провайдера
+    # @return [Object, nil] значение реквизита
     def recipient(payment, key)
       store = payment[:recipient] || payment["recipient"] || {}
       store[key] || store[key.to_sym]
     end
 
     # Неизвестное состояние безопаснее считать незавершённым, чем закрыть выплату.
+    # @param value [Object] состояние словами провайдера
+    # @return [Symbol] состояние в терминах контракта
     def state(value)
       STATE_MAP.fetch(value.to_s.strip.downcase, :pending)
     end
 <% if bound?(:read_callback) -%>
 
+    # @param payload [Hash] тело уведомления
+    # @return [Symbol] состояние в терминах контракта
     def callback_state(payload)
 <% if event_map.any? && callback.event_path -%>
       event = dig_body(payload, <%= path_literal(callback.event_path) %>)
@@ -281,6 +347,8 @@ module Payouts
 
     # Подпись: <%= callback.signature_algorithm.upcase %> от тела запроса. Заголовки
     # ожидаются в payload["headers"], сырое тело — в payload["raw_body"].
+    # @param payload [Hash] тело уведомления вместе с заголовками
+    # @return [Boolean] подпись сходится или проверять её нечем
     def valid_signature?(payload)
       secret = credential(:callback_secret)
       return true if secret.nil?
@@ -290,11 +358,15 @@ module Payouts
       received.bytesize == expected.bytesize && OpenSSL.secure_compare(received, expected)
     end
 
+    # @param payload [Hash] тело уведомления вместе с заголовками
+    # @return [String, nil] подпись из заголовка
     def callback_signature(payload)
       headers = payload["headers"] || payload[:headers] || {}
       headers.to_h.find { |name, _| name.to_s.casecmp?(SIGNATURE_HEADER) }&.last
     end
 
+    # @param payload [Hash] тело уведомления
+    # @return [String] то, что провайдер подписывал
     def callback_body(payload)
       payload["raw_body"] || payload[:raw_body] ||
         payload.to_h.reject { |key, _| %w[headers raw_body].include?(key.to_s) }.to_json
@@ -303,6 +375,9 @@ module Payouts
 
     # Тело ответа и тело webhook — обычные хеши: имена полей провайдер задал сам,
     # поэтому ключи не переименовываем, но принимаем и символы.
+    # @param body [Hash, nil] тело ответа или уведомления
+    # @param path [Array<String>] путь до значения
+    # @return [Object, nil] значение по пути
     def dig_body(body, *path)
       path.reduce(body) do |node, key|
         break nil unless node.respond_to?(:[])
