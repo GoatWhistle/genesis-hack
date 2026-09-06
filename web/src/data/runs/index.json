@@ -1,6 +1,6 @@
 {
   "api": "http://127.0.0.1:9292",
-  "baked": "2026-09-06T08:42:51.525Z",
+  "baked": "2026-09-06T10:36:01.850Z",
   "providers": [
     "kassabox",
     "nordbank",

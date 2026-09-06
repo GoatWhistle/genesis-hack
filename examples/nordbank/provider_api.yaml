@@ -137,6 +137,69 @@ paths:
               schema:
                 $ref: '#/components/schemas/AccountBalance'
 
+  /payment-orders/notifications:
+    post:
+      tags: [Payment orders]
+      summary: Уведомление о смене состояния поручения
+      description: |
+        Банк отправляет уведомление на адрес, согласованный при подключении.
+        Подпись передаётся в заголовке X-Nordbank-Signature (HMAC-SHA256, hex).
+        Состояния приходят заглавными буквами, как и в остальных методах.
+      operationId: paymentOrderNotification
+      security: []
+      parameters:
+        - name: X-Nordbank-Signature
+          in: header
+          required: true
+          schema:
+            type: string
+          description: HMAC-SHA256 подпись сырого тела запроса, hex
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [notificationType, paymentId, status]
+              properties:
+                notificationType:
+                  type: string
+                  enum: [ORDER_EXECUTED, ORDER_RETURNED, ORDER_ACCEPTED]
+                paymentId:
+                  type: string
+                orderReference:
+                  type: string
+                status:
+                  type: string
+                  enum: [ACCEPTED, IN_PROGRESS, EXECUTED, RETURNED, REVOKED]
+                rejectionCode:
+                  type: string
+            examples:
+              executed:
+                summary: Поручение исполнено
+                value:
+                  notificationType: ORDER_EXECUTED
+                  paymentId: "PO-2026-000431"
+                  orderReference: "op_abc123"
+                  status: EXECUTED
+              returned:
+                summary: Поручение возвращено
+                value:
+                  notificationType: ORDER_RETURNED
+                  paymentId: "PO-2026-000431"
+                  orderReference: "op_abc123"
+                  status: RETURNED
+                  rejectionCode: ACCOUNT_CLOSED
+      responses:
+        '200':
+          description: Уведомление принято
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  accepted:
+                    type: boolean
 components:
   parameters:
     CorrelationId:

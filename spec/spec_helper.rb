@@ -17,8 +17,14 @@ end
 
 EXAMPLES = Dir[File.expand_path("../examples/*/provider_api.yaml", __dir__)].freeze
 
+# Описания берём из examples/, а чего там нет — из spec/fixtures/. В examples/
+# лежит витрина показа, в fixtures/ — намеренно бедные описания, на которых
+# проверяется, что инструмент не выдумывает отсутствующее.
 def example_spec(provider)
-  File.expand_path("../examples/#{provider}/provider_api.yaml", __dir__)
+  shown = File.expand_path("../examples/#{provider}/provider_api.yaml", __dir__)
+  return shown if File.exist?(shown)
+
+  File.expand_path("fixtures/#{provider}/provider_api.yaml", __dir__)
 end
 
 DEFAULT_CONTRACT = "space_payments"

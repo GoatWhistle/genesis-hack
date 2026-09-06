@@ -9,11 +9,18 @@ RSpec.describe Service::AdapterBuilder::Classification::Classifier do
     "novapay" => { create_request: "create_payout", fetch_status: "get_payout_status",
                    process_callback: "payout_webhook", cancel_request: "cancel_payout" },
     "swiftpay" => { create_request: "submit_transfer", fetch_status: "fetch_transfer",
-                    process_callback: nil, cancel_request: "revoke_transfer" },
+                    process_callback: "transfer_state_callback",
+                    cancel_request: "revoke_transfer" },
     "kassabox" => { create_request: "make_transfer", fetch_status: "transfer_info",
-                    process_callback: nil, cancel_request: "abort_transfer" },
+                    process_callback: "transfer_notification",
+                    cancel_request: "abort_transfer" },
     "nordbank" => { create_request: "create_payment_order", fetch_status: "get_payment_order",
-                    process_callback: nil, cancel_request: "revoke_payment_order" }
+                    process_callback: "payment_order_notification",
+                    cancel_request: "revoke_payment_order" },
+    # Бедное описание из spec/fixtures: уведомлений в нём нет, и роль обязана
+    # остаться незанятой, а не достаться ближайшей похожей операции.
+    "plainpay" => { create_request: "create_payout", fetch_status: "get_payout_status",
+                    process_callback: nil, cancel_request: nil }
   }.each do |example_name, expected|
     describe "на описании #{example_name}" do
       let(:provider) { example_name }

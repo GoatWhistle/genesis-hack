@@ -16,13 +16,19 @@ RSpec.describe Service::AdapterBuilder::Builder do
     expect(result.source).to include('headers: { "Idempotency-Key" => operation.id }')
   end
 
-  it "кладёт в отчёт счёт и эндпоинт каждой роли" do
-    expect(result.report.dig("roles", "create_request"))
-      .to include("score" => 15, "endpoint" => "POST /payouts")
+  it "кладёт в отчёт эндпоинт каждой роли" do
+    expect(result.report.dig("roles", "create_request")).to include("endpoint" => "POST /payouts")
+  end
+
+  # Точное число не закрепляем: веса правил меняются, а требование — чтобы счёт
+  # был записан и покрывал порог, по которому роль и назначена.
+  it "кладёт в отчёт счёт, покрывающий порог роли" do
+    role = result.report.dig("roles", "create_request")
+    expect(role["score"]).to be >= role["threshold"]
   end
 
   it "отмечает в отчёте роль, оставшуюся заглушкой" do
-    report = build_service("swiftpay").report
+    report = build_service("plainpay").report
     expect(report.dig("roles", "process_callback", "status")).to eq("заглушка")
   end
 
