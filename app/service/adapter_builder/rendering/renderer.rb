@@ -52,7 +52,7 @@ module Service
           # @param path [Array<String>]
           # @return [String] аргументы для чтения тела
           def path_literal(path)
-            Array(path).map { |part| "\"#{part}\"" }.join(", ")
+            Array(path).map(&:inspect).join(", ")
           end
 
           # @param entries [Hash{String => String}] имя ключа → выражение на Ruby
@@ -71,7 +71,7 @@ module Service
             return nested_literal(key, field, indent) unless field.leaf?
             return "#{key} #{field.source}" unless field.source.nil?
 
-            "#{key} nil # TODO: правила не знают, чем заполнить это поле"
+            "# TODO: правила не знают, чем заполнить это поле\n#{" " * indent}#{key} nil"
           end
 
           # @param key [String] ключ с двоеточием
@@ -89,15 +89,15 @@ module Service
           # @param role [Symbol] имя роли контракта
           # @param body_method [String] имя приватного метода, собирающего тело
           # @return [String] вызов транспорта
-          def request_for(role, body_method)
-            request_expression(call_for(role), body_method)
+          def request_for(role, body_method, transport: "request")
+            request_expression(call_for(role), body_method, transport: transport)
           end
 
           # @param call [Analysis::CallPlanner::Request]
           # @param body_method [String]
           # @return [String]
-          def request_expression(call, body_method)
-            "request(#{request_arguments(call, body_method).join(", ")})#{todo_comment(call)}"
+          def request_expression(call, body_method, transport: "request")
+            "#{transport}(#{request_arguments(call, body_method).join(", ")})#{todo_comment(call)}"
           end
 
           private
@@ -118,7 +118,7 @@ module Service
           # @return [String] литерал строки на Ruby
           def path_expression(call)
             filled = call.path.gsub(/\{([^}]+)\}/) do
-              "\#{#{call.path_arguments.fetch(Regexp.last_match(1), "nil")}}"
+              "\#{path_segment(#{call.path_arguments.fetch(Regexp.last_match(1), "nil")})}"
             end
             "\"#{filled}\""
           end

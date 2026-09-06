@@ -3,7 +3,7 @@
 module Models
   # Результат классификации роли; пустая привязка означает заглушку.
   class RoleBinding
-    attr_reader :role, :operation, :score, :matched_rules, :reason
+    attr_reader :role, :operation, :score, :matched_rules, :reason, :alternatives, :link
 
     # @param role [Config::Settings::Role] роль контракта
     # @param operation [Models::ApiOperation, nil] занявшая роль операция; nil — заглушка
@@ -11,13 +11,18 @@ module Models
     #   смыслового классификатора
     # @param matched_rules [Array<#to_s>] сработавшие правила; пустой список у
     #   классификаторов, не использующих правила
+    # @param alternatives [Array<String>] другие кандидаты с тем же или большим счётом:
+    #   их наличие означает неоднозначность и попадает в отчёт
+    # @param link [String, nil] чем подтверждена связь операции с созданием выплаты
     # @param reason [String, nil] текстовое объяснение решения. У правил заполняется
     #   только для незанятой роли: счёт и список правил объясняют решение сами
     # @param threshold [Numeric, nil] порог сравнения счёта; nil — порог роли из
     #   конфигурации. У смысловых классификаторов своя шкала и свой порог
     def initialize(role:, operation: nil, score: 0, matched_rules: [], reason: nil,
-                   threshold: nil)
+                   threshold: nil, alternatives: [], link: nil)
       @role = role
+      @alternatives = alternatives
+      @link = link
       @operation = operation
       @score = score
       @matched_rules = matched_rules
@@ -48,7 +53,16 @@ module Models
     def explanation
       return reason if reason
 
-      "счёт #{score} при пороге #{threshold}: #{matched_rules.join(", ")}"
+      ["счёт #{score} при пороге #{threshold}: #{matched_rules.join(", ")}",
+       link && "связь с созданием — #{link}",
+       ambiguity].compact.join("; ")
+    end
+
+    # @return [String, nil] неоднозначность: кандидаты, не уступавшие выбранному
+    def ambiguity
+      return nil if alternatives.empty?
+
+      "неоднозначно, тот же счёт у: #{alternatives.join(", ")}"
     end
   end
 end

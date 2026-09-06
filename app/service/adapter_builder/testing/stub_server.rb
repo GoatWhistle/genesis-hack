@@ -105,20 +105,31 @@ module Service
 
           code = @answers.fetch(route.role, success_code(route.role))
           reply(response, code, @cases[route.role]&.responses&.dig(code.to_s) || {})
+          reply_headers(response, route.role, code)
+        end
+
+        def reply_headers(response, role, code)
+          values = @cases[role]&.response_headers.to_h.fetch(code.to_s, {})
+          values.each { |name, value| response[name] = value.to_s }
+        end
+
+        # request.path уже декодирован WEBrick и теряет границы URL-идентификатора.
+        def raw_path(request)
+          request.unparsed_uri.split("?", 2).first
         end
 
         # @param request [WEBrick::HTTPRequest]
         # @return [Route, nil]
         def match(request)
           @routes.find do |route|
-            route.http_method == request.request_method && route.pattern.match?(request.path)
+            route.http_method == request.request_method && route.pattern.match?(raw_path(request))
           end
         end
 
         # @param request [WEBrick::HTTPRequest]
         # @return [void]
         def record(request)
-          received = Received.new(http_method: request.request_method, path: request.path,
+          received = Received.new(http_method: request.request_method, path: raw_path(request),
                                   query: request.query_string.to_s, headers: headers(request),
                                   body: body(request))
           @lock.synchronize { @received << received }

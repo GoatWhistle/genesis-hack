@@ -21,6 +21,9 @@ module Service
         # @return [Plan] запросы по ролям, которым нашлась операция
         def call(bindings)
           @warnings = []
+          @create = bindings.values.find do |binding|
+            binding.role.trait?(:creates_operation)
+          end&.operation
           requests = @rules.roles_with(:calls_provider).to_h do |role|
             [role.name, request_for(bindings, role.name)]
           end
@@ -48,9 +51,42 @@ module Service
         # @param operation [Models::ApiOperation]
         # @return [Hash{String => String}] имя параметра → выражение на Ruby
         def path_arguments(operation)
-          operation.path_parameters.to_h do |parameter|
-            [parameter[:name], expression(parameter, operation)]
+          operation.path.scan(/\{([^}]+)\}/).flatten.to_h do |name|
+            parameter = operation.path_parameters.find do |item|
+              item[:name] == name
+            end || { name: name }
+            [name, path_source(parameter, operation)]
           end
+        end
+
+        def path_source(parameter, operation)
+          if ResourceParameters.identifier(@create, operation) == parameter[:name]
+            return provider_identifier_source
+          end
+
+          fixed_source(parameter[:schema] || {}) || configured_source(parameter, operation)
+        end
+
+        def provider_identifier_source
+          @rules.path_params.find do |entry|
+            entry[:field].to_s == "provider_id"
+          end&.dig(:source) || "nil"
+        end
+
+        def fixed_source(schema)
+          return schema[:default].inspect if schema.key?(:default)
+
+          schema[:enum].first.inspect if Array(schema[:enum]).one?
+        end
+
+        # Неизвестные параметры требуют явной настройки, включая ID родителя.
+        def configured_source(parameter, operation)
+          @warnings << "#{operation.method_name}: задайте параметр #{parameter[:name]} в реквизитах"
+          entry = @rules.path_params.find { |item| item[:field].to_s == "configured_parameter" }
+          return format(entry[:source], name: parameter[:name].inspect) if entry&.dig(:source)
+
+          @unfilled << parameter[:name]
+          "nil"
         end
 
         # Необязательные параметры запроса пропускаются.

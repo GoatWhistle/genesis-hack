@@ -6,7 +6,8 @@ module Service
       # Примеры запросов, ответов и уведомлений с ожидаемым статусом контракта.
       class FixturePlanner
         # Один эндпоинт: запрос к нему и его ответы.
-        Case = Struct.new(:role, :title, :endpoint, :request, :responses, keyword_init: true)
+        Case = Struct.new(:role, :title, :endpoint, :request, :responses, :response_headers,
+                          keyword_init: true)
         # Уведомление и статус контракта, в который оно переводится.
         Callback = Struct.new(:name, :payload, :expected, keyword_init: true)
         Result = Struct.new(:calls, :callbacks, keyword_init: true)
@@ -46,7 +47,7 @@ module Service
           operation = binding.operation
           Case.new(role: role.name, title: role.title, endpoint: binding.endpoint,
                    request: example(operation.request_example, operation.request_schema),
-                   responses: responses(operation))
+                   responses: responses(operation), response_headers: response_headers(operation))
         end
 
         # Все описанные ответы, включая ошибочные: по ним проверяется разбор 4xx и 5xx.
@@ -54,8 +55,18 @@ module Service
         # @return [Hash{String => Hash}] код ответа → пример тела
         def responses(operation)
           operation.responses.to_h do |code, body|
-            [code.to_s, example(body[:example], body[:schema])]
+            [code.to_s, example(body[:example], body[:schema]) || {}]
           end.compact
+        end
+
+        def response_headers(operation)
+          operation.responses.to_h do |code, body|
+            headers = (body[:headers] || {}).to_h do |name, header|
+              resolved = header.is_a?(Hash) ? header : {}
+              [name.to_s.downcase, example(resolved[:example], resolved[:schema] || resolved)]
+            end.compact
+            [code.to_s, headers]
+          end
         end
 
         # Пример из описания приоритетнее синтезированного.
@@ -63,9 +74,9 @@ module Service
         # @param schema [Hash, nil] схема на случай, если примера нет
         # @return [Hash, nil]
         def example(described, schema)
-          return as_data(described) if described.is_a?(Hash)
+          return as_data(described) unless described.nil?
 
-          @sample.call(schema)
+          as_data(@sample.call(schema))
         end
 
         # Ключи приводятся к тому виду, в каком их передаёт провайдер.
@@ -97,7 +108,7 @@ module Service
         # @param operation [Models::ApiOperation]
         # @return [Hash, nil] тело уведомления до подстановки события
         def callback_body(operation)
-          synthesized = @sample.call(operation.request_schema)
+          synthesized = as_data(@sample.call(operation.request_schema))
           described = operation.request_example
           return synthesized unless described.is_a?(Hash)
 
@@ -113,7 +124,7 @@ module Service
         # @return [Array<Callback>]
         def build_callbacks(base, source, kind)
           source.map do |name, contract_status|
-            payload = base.dup
+            payload = Marshal.load(Marshal.dump(base))
             overrides(kind, name, contract_status).each do |path, value|
               assign(payload, path, value)
             end
@@ -126,9 +137,7 @@ module Service
         # @param value [Object]
         # @return [void]
         def assign(payload, path, value)
-          *head, last = path
-          target = head.reduce(payload) { |node, key| node.is_a?(Hash) ? node[key] : nil }
-          target[last] = value if target.is_a?(Hash) && target.key?(last)
+          Parsing::DataPath.assign(payload, path, value)
         end
 
         # Поле статуса заполняется состоянием того же статуса контракта.

@@ -44,6 +44,7 @@ module Service
         # @param depth [Integer]
         # @return [Hash]
         def own_properties(node, depth)
+          node = node.merge(items: call(node[:items], depth + 1)) if node[:items].is_a?(Hash)
           return node unless node.key?(:properties)
 
           resolved = (node[:properties] || {}).transform_values { |value| call(value, depth + 1) }

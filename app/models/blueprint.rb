@@ -17,6 +17,8 @@ module Models
     :amount_multiplier,   # 1 или 100
     :amount_expression,   # чем контракт приводит сумму к виду провайдера
     :calls,               # роль → CallPlanner::Request для ролей, ходящих к провайдеру
+    :status_fields,       # роль → путь к статусу в её собственном ответе
+    :created_id_header,   # заголовок создания, если ID не описан в JSON
     :status_field,        # где в ответе лежит статус
     :created_id_field,    # где в ответе лежит идентификатор операции провайдера
     :callback,            # поля тела webhook и подпись

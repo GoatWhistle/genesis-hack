@@ -10,13 +10,23 @@ archetypes:
       # и приём платежа.
       - { field: method_name, pattern: '(payout|disburse|withdraw|cashout|cash_out|remit|transfer|перевод|выплат)', weight: 6 }
       - { field: path, pattern: '(payout|disburse|withdraw|cashout|remit|transfer)', weight: 4 }
-      # У части банковских API операция названа не transfer, а исходящей
-      # транзакцией, disbursement или заявкой на вывод.
-      - { field: method_name, pattern: '(transaction_?out)', weight: 14 }
-      - { field: method_name, pattern: '(transaction_?intent)', weight: 18 }
-      - { field: method_name, pattern: '(disbursement|withdraw_?apply|credit_?transfer)', weight: 12 }
+      # У части банковских API движение денег наружу названо не выплатой, а
+      # исходящей транзакцией, распоряжением или кредитовым переводом.
+      - field: method_name
+        pattern: '(transaction_?out|out_?going|outbound)'
+        weight: 4
+        # Слово о направлении добирает счёт там, где о выплате не сказано прямо;
+        # к payout или transfer оно ничего не добавляет.
+        except:
+          - { field: method_name, pattern: '(payout|disburse|transfer|withdraw|remit)' }
+      - field: path
+        pattern: '(out_?going|outbound|/ach\b|wire)'
+        weight: 2
+        except:
+          - { field: path, pattern: '(payout|disburse|transfer|withdraw|remit)' }
+      - { field: method_name, pattern: '(disbursement|disburse|withdraw_?apply|credit_?transfer|payment_?instruction)', weight: 6 }
       # Глагол создания. Смотрим method_name, а не operation_id: последнего может не быть.
-      - { field: method_name, pattern: '(create|make|submit|send|issue|register|open|start|initiat|\bnew\b|enqueue|instruct|execute|book)', weight: 6 }
+      - { field: method_name, pattern: '(create|make|submit|send|issue|register|open|start|initiat|\bnew\b|enqueue|instruct|execute|book|\Aadd_)', weight: 6 }
       # Слабые существительные: сами по себе роли не дают, но добирают счёт там,
       # где сильного слова нет.
       - { field: method_name, pattern: '(payment|order|deposit|batch)', weight: 2 }
@@ -24,24 +34,44 @@ archetypes:
       - { field: http_method, pattern: '\Apost\z', weight: 2 }
       - { field: path, pattern: '\A[^{}]+\z', weight: 2 }
       - { field: summary, pattern: '(создать|создание|отправить|отправка|инициировать|выплат|перевод|create|make|submit|send|initiat|issue|start|pay out|transfer|disbursement|withdraw)', weight: 2 }
+    # Структурные признаки: не как операция названа, а что она принимает и
+    # возвращает. Выплата обязана принять сумму с валютой и получателя.
+    signals:
+      - { kind: checkout_request, veto: true }
+      - { kind: money_request, weight: 3 }
+      - { kind: recipient_request, weight: 4 }
+      - { kind: identifier_response, weight: 1 }
     veto:
       # Создание не выплаты: согласие, ссылка, реквизит, подписка, входящий платёж.
       # Список набран по ошибкам на настоящих описаниях.
       - { field: method_name, pattern: '(refund|cancel|revoke|abort|reverse|return)' }
       - { field: method_name, pattern: '(webhook|callback|notification|event|subscription)' }
-      - { field: method_name, pattern: '(consent|incoming|link|credential|token|instrument|recipient|quote|session|payment_?intent|profile|setting|check|estimate|verify|approve|finalize|authoriz|capture|draft)' }
+      - { field: method_name, pattern: '(consent|incoming|link|credential|token|instrument|recipient|quote|session|profile|setting|check|estimate|verify|approve|finalize|authoriz|capture|draft)' }
       - { field: method_name, pattern: '(method|permit|basket|signing|bank_account|config|score|access|renew|delete|update)' }
-      # Это движение денег внутри продукта либо подготовка контейнера, а не
-      # исполнение одной выплаты получателю.
-      - { field: method_name, pattern: '(internal_?transfer|external_card_transfer)' }
-      - { field: summary, pattern: '(between (your )?accounts|internal transfer|universal transfer|sub[- ]?account|asset transfer|merchant order)' }
-      - { field: tags, pattern: '(card payments)' }
+      # Не выплата, а заведённая рядом сущность: участник, справочник, анкета,
+      # вариант исполнения. Слова общие, привязки к провайдеру в них нет.
+      - { field: method_name, pattern: '(person|originator|diligence|questionnaire|option|simulat|template)' }
+      # Ожидаемый платёж — запись о том, что деньги должны прийти, а не выплата.
+      - { field: method_name, pattern: '(expected)' }
+      - { field: summary, pattern: '(expected payment)' }
+      # Постоянное поручение и график — это регулярные платежи, а не одна выплата.
+      - { field: method_name, pattern: '(standing_?order|periodic|schedule|recurring)' }
+      # Шаг сценария и контейнер вокруг платежа: сам платёж создаёт не он.
+      - { field: method_name, pattern: '(_flow\z|_action\z|_step\z)' }
+      # Устаревшую операцию провайдер помечает прямо в описании.
+      - { field: summary, pattern: '\A\(?deprecated' }
+      # Движение денег внутри продукта: между своими счетами, по внутренней книге.
+      # Внешний перевод на карту сюда не относится — это обычная выплата.
+      - { field: method_name, pattern: '(internal_?transfer|book_?transfer|ledger_?transfer|peer_?transfer|sweep)' }
+      - { field: summary, pattern: '(between (your )?accounts|internal transfer|universal transfer|sub[- ]?account|asset transfer|merchant order|book transfer)' }
       - { field: method_name, pattern: '(status|info|list|search|export|detail|balance_check)' }
       - { field: path, pattern: '(refund|cancel|revoke|abort|webhook|callback|revocation|consent|incoming|session|authoris|authoriz)' }
       - { field: method_name, pattern: '(authoris|\A\d)' }
       # Выплату не создают чтением и не создают удалением. Правило смысловое, а не
       # подогнанное: без него роль забирал GET со списком переводов.
       - { field: http_method, pattern: '\A(get|delete|head)\z' }
+      # Входящее уведомление выплату не создаёт, чем бы оно ни называлось.
+      - { field: incoming, pattern: '\Atrue\z' }
 
   status_lookup:
     rules:
@@ -54,16 +84,39 @@ archetypes:
       - { field: path, pattern: '\{[^}]+\}\z', weight: 4 }
       - { field: method_name, pattern: '(status|state|info|fetch|get|show|details|retrieve|snapshot)', weight: 4 }
       - { field: summary, pattern: '(статус|состояни|сведени|получить|узнать|status|state|fetch)', weight: 2 }
+      # Часть API спрашивает статус методом POST: адрес заканчивается словом
+      # get/status/details, а тело содержит идентификатор операции.
+      - { field: method_name, pattern: '(_get\z|_status\z|_details?\z|_info\z|_retrieve\z)', weight: 6 }
+      - { field: path, pattern: '(/(get|status|details|info|retrieve)\z|[-_]status\z)', weight: 6 }
+    signals:
+      - { kind: status_response, weight: 3 }
     veto:
       - { field: method_name, pattern: '(refund|webhook|callback|cancel|revoke|abort|list|search|export)' }
+      # Перечисление операций статусом одной из них не является, как бы она ни
+      # называлась: об этом прямо сказано в описании операции.
+      - { field: summary, pattern: '\A(lists?|returns? a list|retrieves? a list|список)' }
       - { field: method_name, pattern: '(consent|incoming|token|session|credential|statement|company|block|3_d|secure|recipient|card|audit|sca|group|setting|link|instrument)' }
       - { field: path, pattern: '(refund|webhook|callback|revocation|consent|incoming|audit)' }
       - { field: method_name, pattern: '(item|authoris)' }
-      - { field: http_method, pattern: '\A(post|put|patch|delete)\z' }
+      - { field: method_name, pattern: '(internal_?transfer|book_?transfer|ledger_?transfer|peer_?transfer|expected)' }
+      - { field: summary, pattern: '\A\(?deprecated' }
+      - { field: incoming, pattern: '\Atrue\z' }
+      - { field: http_method, pattern: '\A(put|patch|delete)\z' }
+      # POST статуса не даёт сам по себе: только когда имя или адрес прямо
+      # говорят, что операция читает состояние. Так устроены RPC-подобные API,
+      # где GET нет вовсе.
+      - field: http_method
+        pattern: '\Apost\z'
+        except:
+          - { field: method_name, pattern: '(_get\z|_status\z|_state\z|_details?\z|_info\z|_retrieve\z|\Aget_|\Afetch_|\Aretrieve_)' }
+          - { field: path, pattern: '(/(get|status|details|info|retrieve)\z|[-_]status\z)' }
 
   callback:
     rules:
-      - { field: method_name, pattern: '(webhook|callback|notification|notify|event|signal|hook)', weight: 8 }
+      - { field: method_name, pattern: '(webhook|callback|notification|event|signal|hook)', weight: 8 }
+      # Раздел webhooks OpenAPI 3.1: направление объявлено самим описанием, и это
+      # доказательство сильнее любого слова в названии.
+      - { field: incoming, pattern: '\Atrue\z', weight: 12 }
       - { field: path, pattern: '(webhook|callback|notification|events|hooks|signal)', weight: 6 }
       - { field: tags, pattern: '(webhook|callback|notification|hook|уведомлен)', weight: 4 }
       - { field: http_method, pattern: '\Apost\z', weight: 1 }
@@ -71,6 +124,10 @@ archetypes:
       # Регистрацию webhook отсекаем по глаголу: своё уведомление зовут существительным.
       - { field: method_name, pattern: '(create|register|subscri|configure|update|delete|remove|list|search|get|read|test|ping|disable|enable|resend|meter|billing|terminal|timeline|custom|\Aset_|endpoint|request_notify)' }
       - { field: method_name, pattern: '\Apost_webhooks?\z' }
+      - { field: method_name, pattern: '(retry|fire|trigger|simulat|sandbox|verification|delet|_auth\z|shopper)' }
+      # Входящее уведомление приходит на наш адрес целиком: подстановок в нём нет,
+      # а вот управление чужими вебхуками адресуется идентификатором компании.
+      - { field: path, pattern: '\{[^}]+\}' }
 
   cancellation:
     rules:
@@ -88,6 +145,13 @@ archetypes:
       # Отмена нередко меняет состояние операции, поэтому бывает PATCH или PUT.
       - { field: http_method, pattern: '\A(post|put|patch|delete)\z', weight: 1 }
     veto:
+      # Отмена обязана называться отменой: без такого слова в имени или адресе
+      # операция отменой не считается, сколько бы очков она ни набрала.
+      - field: method_name
+        pattern: '\A(?!.*(?:cancel|revoke|abort|void|halt|decline|stop|terminate|withdraw|revocation|reversal|delete)).*\z'
+        except:
+          - { field: path, pattern: '(cancel|revoke|abort|halt|decline|stop|withdraw|revocation|reversal)' }
+      - { field: incoming, pattern: '\Atrue\z' }
       - { field: method_name, pattern: '(refund|coupon|token|terminal|mandate|authoriz|authoris|document|consent|subscription|timeline|invoice)' }
       - { field: method_name, pattern: '\A(?!.*(?:payout|disburse|transfer|cashout|batch)).*payment.*cancel' }
 
@@ -142,6 +206,7 @@ requisite_patterns:
 
 # Параметры пути и обязательные параметры строки запроса.
 path_patterns:
+  - { field: configured_parameter, patterns: [] }
   - { field: provider_id, patterns: ['\w*(id|no|number|reference|uuid)\z'] }
 
 # Поля тела webhook: по ним обёртка понимает, о какой операции и о чём речь.

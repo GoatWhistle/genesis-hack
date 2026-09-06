@@ -28,6 +28,8 @@ module Service
         def call(item)
           section = { "title" => item.title, "endpoint" => item.endpoint }
           section["request"] = item.request unless item.request.nil?
+          headers = item.response_headers.to_h.reject { |_, values| values.empty? }
+          section["response_headers"] = headers unless headers.empty?
           section.merge("responses" => item.responses)
         end
 

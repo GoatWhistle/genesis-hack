@@ -20,7 +20,10 @@ module Adapter
           raise ArgumentError, "описание API не найдено: #{path}" unless path.file?
 
           Document.ensure_size(path.size, path)
-          document = Document.parse(path.read, json: json?(path))
+          # Кодировка файла не должна зависеть от локали процесса (LANG/LC_ALL):
+          # без явного указания Pathname#read берёт внешнюю кодировку из локали,
+          # и половина корпуса падает с Encoding::InvalidByteSequenceError.
+          document = Document.parse(path.read(encoding: "bom|utf-8"), json: json?(path))
           Document.ensure_object(document, path)
         end
 
