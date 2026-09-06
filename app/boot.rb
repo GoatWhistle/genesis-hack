@@ -2,6 +2,11 @@
 
 require "pathname"
 
+# Правила, шаблоны и описания API написаны в UTF-8, а Ruby читает файлы в кодировке
+# локали процесса: при пустой LANG это US-ASCII, и кириллица приезжает нечитаемой.
+# Кодировку задаём сами, чтобы сборка не зависела от окружения, в котором запущена.
+Encoding.default_external = Encoding::UTF_8
+
 module Rsocket
   ROOT = Pathname.new(__dir__).parent.freeze
   APP = ROOT.join("app").freeze
