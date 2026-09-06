@@ -10,6 +10,7 @@ module Service
         # @param document [Hash] описание целиком — по нему разрешаются локальные $ref
         def initialize(document)
           @document = document
+          @resolved = {}
         end
 
         # Приводит схему к плоскому виду; глубина ограничена из-за циклических ссылок.
@@ -20,13 +21,26 @@ module Service
           return node unless node.is_a?(Hash)
           return node if depth > MAX_DEPTH
 
-          node = call(dereference(node[:$ref]), depth + 1) if node.key?(:$ref)
+          node = resolve_reference(node[:$ref], depth) if node.key?(:$ref)
           return node unless node.is_a?(Hash)
 
           combined(node, depth) || own_properties(node, depth)
         end
 
         private
+
+        # Одна и та же ссылка на разной глубине раскрывается одинаково, а описания
+        # уровня Stripe ссылаются на общие схемы тысячи раз: без запоминания
+        # раскрытие идёт по кругу и съедает память гигабайтами.
+        # @param reference [String, nil]
+        # @param depth [Integer]
+        # @return [Hash, nil]
+        def resolve_reference(reference, depth)
+          key = [reference, depth]
+          return @resolved[key] if @resolved.key?(key)
+
+          @resolved[key] = call(dereference(reference), depth + 1)
+        end
 
         # allOf, oneOf и anyOf склеиваются по-разному, поэтому разбираются отдельно.
         # @param node [Hash]
