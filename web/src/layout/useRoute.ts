@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { ROUTES, isRoute, type RoutePath } from "./routes";
 
 const SITE_NAME = "RSOCKET";
-const SITE_ABOUT = "интеграция с платёжным провайдером по его описанию API";
+const SITE_ABOUT = "интеграция по описанию API";
 
 const readPathFromLocation = (): RoutePath => {
   const path = window.location.pathname.replace(/\/+$/, "") || "/";
@@ -43,7 +43,6 @@ export const useRoute = () => {
     if (address === `${window.location.pathname}${window.location.search}`) return;
     window.history.pushState({}, "", address);
     setPath(next);
-    window.scrollTo({ top: 0 });
   }, []);
 
   return { path, go };

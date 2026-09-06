@@ -10,7 +10,7 @@
     .side-grid { grid-template-columns: 16rem minmax(0, 1fr); gap: var(--space-6); }
   }
 
-  .side-nav ul { list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-1); }
+  .side-nav ul { position: relative; list-style: none; margin: 0; padding: 0; display: flex; flex-wrap: wrap; gap: var(--space-1); }
 
   @media (width >= 60rem) {
     .side-nav ul { display: block; border-left: 1px solid var(--color-line-hair); }
@@ -39,14 +39,11 @@
     font-weight: 500;
   }
 
-  .side-nav-text { position: relative; }
+  .side-nav-text { position: relative; z-index: 2; }
 
   .side-nav-edge {
-    position: absolute;
-    inset-inline: 0;
-    inset-block-end: 0;
-    block-size: 2px;
     background: var(--color-ink);
+    clip-path: inset(calc(100% - 2px) 0 0 0);
   }
 
   @media (width >= 60rem) {
@@ -56,11 +53,6 @@
       margin-left: -1px;
     }
 
-    .side-nav-edge {
-      inset-inline: -1px auto;
-      inset-block: 0;
-      inline-size: 2px;
-      block-size: auto;
-    }
+    .side-nav-edge { clip-path: inset(0 calc(100% - 2px) 0 0); }
   }
 }

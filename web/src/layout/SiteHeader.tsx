@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { GithubLink } from "~/shared/design/GithubLink";
 import { Mark } from "~/shared/design/Mark";
+import { SlidingPlate } from "~/shared/ui/SlidingPlate";
 import { ROUTES, type RoutePath } from "./routes";
 
 interface Props {
@@ -18,6 +20,7 @@ const IDLE: RailState = { overflow: false, atStart: true, atEnd: true };
 export const SiteHeader = ({ path, go }: Props) => {
   const railRef = useRef<HTMLDivElement>(null);
   const [rail, setRail] = useState<RailState>(IDLE);
+  const [navHost, setNavHost] = useState<HTMLUListElement | null>(null);
 
   const measure = useCallback(() => {
     const node = railRef.current;
@@ -63,22 +66,31 @@ export const SiteHeader = ({ path, go }: Props) => {
             data-at-start={rail.atStart}
             data-at-end={rail.atEnd}
           >
-            <ul className="site-nav">
-              {ROUTES.filter((route) => route.path !== "/").map((route) => (
-                <li key={route.path}>
-                  <button
-                    className="site-nav-item"
-                    data-active={path === route.path}
-                    aria-current={path === route.path ? "page" : undefined}
-                    onClick={() => go(route.path)}
-                  >
-                    {route.nav}
-                  </button>
-                </li>
-              ))}
+            <ul className="site-nav" ref={setNavHost}>
+              <SlidingPlate host={navHost} activeKey={path} className="site-nav-underline" />
+              {ROUTES.filter((route) => route.path !== "/").map((route) => {
+                const active = path === route.path;
+
+                return (
+                  <li key={route.path} data-plate={active}>
+                    <button
+                      className="site-nav-item"
+                      data-active={active}
+                      aria-current={active ? "page" : undefined}
+                      onClick={() => go(route.path)}
+                    >
+                      <span className="site-nav-text">{route.nav}</span>
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           </div>
         </nav>
+        <GithubLink
+          href="https://github.com/GoatWhistle/genesis-hack"
+          label="Исходники на GitHub"
+        />
       </div>
     </header>
   );

@@ -111,8 +111,10 @@
   }
   .bench-input:focus { border-color: var(--color-ink); }
 
-  .bench-samples { display: flex; flex-wrap: wrap; gap: var(--space-1); margin-top: var(--space-2); }
-  .bench-sample { font-family: var(--font-mono); font-size: 0.75rem; border: 1px solid var(--color-line); border-radius: var(--radius-control); }
+  .bench-samples { position: relative; display: flex; flex-wrap: wrap; gap: var(--space-1); margin-top: var(--space-2); }
+  .bench-sample { position: relative; font-family: var(--font-mono); font-size: 0.75rem; border: 1px solid var(--color-line); border-radius: var(--radius-control); }
+  .bench-sample[data-active="true"] { border-color: var(--color-ink); color: var(--color-paper); }
+  .bench-slider { border-radius: var(--radius-control); }
 
   .bench-verdict { margin: var(--space-3) 0 0; font-size: var(--text-step-1); max-width: 40ch; }
 

@@ -61,8 +61,10 @@
   .rc-input-row { display: grid; gap: var(--space-2); }
   .rc-input { inline-size: 100%; max-inline-size: 26rem; min-block-size: 2.75rem; padding-inline: var(--space-2); border: 1px solid var(--color-ink); border-radius: var(--radius-control); background: var(--color-paper); color: var(--color-ink); font-size: var(--text-step-0); }
   .rc-input:focus { border-color: var(--color-ink); }
-  .rc-examples { display: flex; flex-wrap: wrap; gap: var(--space-1); }
-  .rc-example { border: 1px solid var(--color-line); border-radius: var(--radius-control); }
+  .rc-examples { position: relative; display: flex; flex-wrap: wrap; gap: var(--space-1); }
+  .rc-example { position: relative; border: 1px solid var(--color-line); border-radius: var(--radius-control); }
+  .rc-example[data-active="true"] { border-color: var(--color-ink); color: var(--color-paper); }
+  .rc-example-slider { border-radius: var(--radius-control); }
 
   .rc-derived { font-size: var(--text-step--1); color: var(--color-ink-soft); }
   .rc-derived code { font-size: 0.75rem; }
@@ -147,7 +149,16 @@
 
   .tpl { display: grid; gap: var(--space-3); }
   .tpl-tabs-wrap { padding-bottom: var(--space-1); }
-  .tpl-tabs { flex: none; width: max-content; }
+  .tpl-tabs-wrap .switch { display: grid; inline-size: 100%; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1px; }
+  .tpl-tabs-wrap .switch-item { min-inline-size: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+
+  @media (max-width: 64rem) {
+    .tpl-tabs-wrap .switch { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+
+  @media (max-width: 40rem) {
+    .tpl-tabs-wrap .switch { grid-template-columns: minmax(0, 1fr); }
+  }
   .tpl-body { display: grid; gap: var(--space-3); }
 
   @media (min-width: 64rem) {

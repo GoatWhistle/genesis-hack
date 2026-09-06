@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { Endpoint } from "../model/endpoints";
+import { PlayIcon } from "~/shared/design/PlayIcon";
 
 type Live = { state: "idle" } | { state: "wait" } | { state: "done"; body: string; ok: boolean };
 
@@ -50,8 +51,15 @@ export const EndpointCard = ({ endpoint }: { endpoint: Endpoint }) => {
         <div className="ep-answer-bar">
           <span className="label">{live.state === "done" ? "ответ сервиса сейчас" : "ответ"}</span>
           {endpoint.probe ? (
-            <button type="button" className="btn btn-ghost ep-run" onClick={run} disabled={live.state === "wait"}>
-              {live.state === "wait" ? "запрашиваем…" : "выполнить"}
+            <button
+              type="button"
+              className="btn btn-ghost btn-icon ep-run"
+              onClick={run}
+              disabled={live.state === "wait"}
+              aria-label={live.state === "wait" ? "Запрашиваем" : "Выполнить запрос"}
+              title={live.state === "wait" ? "Запрашиваем…" : "Выполнить запрос"}
+            >
+              <PlayIcon />
             </button>
           ) : null}
         </div>

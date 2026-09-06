@@ -1,7 +1,7 @@
 export const ROUTES = [
   { path: "/", title: "RSOCKET", nav: "Начало" },
-  { path: "/lab", title: "Разбор", nav: "Разбор" },
-  { path: "/rules", title: "Правила", nav: "Правила" },
+  { path: "/lab", title: "Разбор документа", nav: "Разбор" },
+  { path: "/rules", title: "Правила разбора", nav: "Правила" },
   { path: "/providers", title: "Провайдеры", nav: "Провайдеры" },
   { path: "/docs", title: "Документация", nav: "Документация" }
 ] as const;

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ReplayIcon } from "~/shared/design/ReplayIcon";
 
 export interface Take {
   id: string;
@@ -56,8 +57,15 @@ export const Terminal = ({ take }: { take: Take }) => {
             {take.command.slice(0, typed)}
             {running && typed < take.command.length ? <span className="term-caret" /> : null}
           </code>
-          <button type="button" className="btn btn-ghost term-replay" onClick={replay} disabled={running}>
-            {running ? "идёт…" : "повторить"}
+          <button
+            type="button"
+            className="btn btn-ghost btn-icon term-replay"
+            onClick={replay}
+            disabled={running}
+            aria-label={running ? "Идёт прогон" : "Повторить прогон"}
+            title={running ? "Идёт прогон" : "Повторить прогон"}
+          >
+            <ReplayIcon size={18} />
           </button>
         </div>
 

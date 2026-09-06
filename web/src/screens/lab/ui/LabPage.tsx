@@ -18,6 +18,7 @@ import { methodNames } from "../model/methodNames";
 import { looksOffline } from "../model/liveSource";
 import { ProvenanceContext, useProvenanceState } from "./useProvenance";
 import "./lab.css";
+import { ArrowRight } from "~/shared/design/ArrowRight";
 
 const emptyReport: Report = {
   provider: "",
@@ -115,7 +116,7 @@ const Lab = ({ go }: PageProps) => {
               <p className="lab-badge" role="status">
                 <span className="chip chip-provider">разбор готов</span>
                 <code className="mono">{run.report.provider}</code>
-                <span aria-hidden="true">→</span>
+                <ArrowRight size={14} />
                 <code className="mono">{run.report.contract}</code>
               </p>
               <Pipeline onStage={setStage} />
