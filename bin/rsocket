@@ -18,6 +18,10 @@ class RsocketCLI < Thor
   # @return [Boolean] несобравшийся сервис — повод для ненулевого кода возврата
   def self.exit_on_failure? = true
 
+  # Thor приносит с собой команду tree: она печатает дерево команд по-английски и
+  # к работе инструмента отношения не имеет — в справке ей делать нечего.
+  remove_command :tree
+
   desc "build", "Собрать интеграцию по описанию API провайдера"
   option :spec, required: true, aliases: "-s", desc: "путь к OpenAPI-описанию"
   option :provider, required: true, aliases: "-p", desc: "имя провайдера, например novapay"
