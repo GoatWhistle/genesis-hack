@@ -71,7 +71,7 @@ module Payouts
     InvalidPayment = Class.new(StandardError)
 
     # Ответ провайдера; error заполнен, если до него не дошли.
-    Response = Struct.new(:code, :body, :error) do
+    Response = Struct.new(:code, :body, :error, :headers) do
       # @return [Boolean] ответ дошёл и провайдер не отказал
       def success? = error.nil? && code.between?(200, 299)
     end
@@ -104,8 +104,15 @@ module Payouts
     # @raise [ProviderError] провайдер отказал или до него не дошли
     def send_payout(payment)
       check!(payment)
-      body = <%= request_for(:send_payout, "send_payout_body(payment)") %>
-      dig_body(body, <%= path_literal(created_id_field) %>)
+      response = <%= request_for(:send_payout, "send_payout_body(payment)", transport: "request_response") %>
+<% if created_id_header -%>
+      identifier = location_identifier(response.headers&.fetch(<%= created_id_header.downcase.inspect %>, nil))
+<% else -%>
+      identifier = dig_body(response.body, <%= path_literal(created_id_field) %>)
+<% end -%>
+      raise ProviderError.new(:missing_operation_id, response.code) unless valid_identifier?(identifier)
+
+      identifier
     end
 
 <% origin(:payout_state).each do |line| -%>
@@ -119,7 +126,7 @@ module Payouts
     # @raise [ProviderError] провайдер отказал или до него не дошли
     def payout_state(provider_id<% if body?(:payout_state) %>, payment<% end %>)
       body = <%= request_for(:payout_state, "payout_state_body(payment)") %>
-      state(dig_body(body, <%= path_literal(status_field) %>))
+      state(dig_body(body, <%= path_literal(status_fields&.fetch(:payout_state, status_field) || status_field) %>))
     end
 <% if call_for(:cancel_payout) -%>
 
@@ -134,7 +141,7 @@ module Payouts
     # @raise [ProviderError] провайдер отказал или до него не дошли
     def cancel_payout(provider_id<% if body?(:cancel_payout) %>, payment<% end %>)
       body = <%= request_for(:cancel_payout, "cancel_payout_body(payment)") %>
-      state(dig_body(body, <%= path_literal(status_field) %>))
+      state(dig_body(body, <%= path_literal(status_fields&.fetch(:cancel_payout, status_field) || status_field) %>))
     end
 <% end -%>
 
@@ -182,10 +189,14 @@ module Payouts
     # @param headers [Hash] заголовки сверх обычных
     # @return [Hash] разобранное тело успешного ответа
     # @raise [ProviderError] провайдер отказал или до него не дошли
-    def request(http_method, path, body: nil, query: {}, headers: {})
+    def request(http_method, path, **options)
+      request_response(http_method, path, **options).body
+    end
+
+    def request_response(http_method, path, body: nil, query: {}, headers: {})
       uri = build_uri(path, query)
       response = perform(uri, build_request(http_method, uri, body, headers))
-      return response.body if response.success?
+      return response if response.success?
       raise ProviderError.new(:transport_error, 0, response.error) if response.error
 
       raise ProviderError.new(ERROR_MAP.fetch(response.code, ERROR_MAP.fetch(:default)),
@@ -229,7 +240,7 @@ module Payouts
                                                 read_timeout: READ_TIMEOUT) do |http|
         http.request(message)
       end
-      Response.new(raw.code.to_i, parse_body(raw.body), nil)
+      Response.new(raw.code.to_i, parse_body(raw.body), nil, raw.each_header.to_h)
     rescue Timeout::Error, IOError, SystemCallError, OpenSSL::SSL::SSLError => e
       Response.new(0, {}, e.message)
     end
@@ -365,15 +376,38 @@ module Payouts
     end
 <% end -%>
 
+    def valid_identifier?(value)
+      (value.is_a?(String) && !value.strip.empty?) || value.is_a?(Numeric)
+    end
+<% if created_id_header -%>
+
+    def location_identifier(value)
+      path = URI.parse(value.to_s).path
+      return nil if path.nil? || path.end_with?("/")
+
+      path.split("/").last&.gsub(/%[0-9a-f]{2}/i) { |byte| byte[1..].to_i(16).chr }
+    rescue URI::InvalidURIError
+      nil
+    end
+<% end -%>
+
+    def path_segment(value)
+      raise ProviderError.new(:missing_parameter, 0) unless valid_identifier?(value)
+
+      URI.encode_www_form_component(value.to_s).gsub("+", "%20")
+    end
+
     # Ключи не переименовываем, но принимаем и символы.
     # @param body [Hash, nil] тело ответа или уведомления
     # @param path [Array<String>] путь до значения
     # @return [Object, nil] значение по пути
     def dig_body(body, *path)
       path.reduce(body) do |node, key|
-        break nil unless node.respond_to?(:[])
-
-        node[key] || node[key.to_sym]
+        case node
+        when Hash then node.key?(key) ? node[key] : node[key.to_s] || node[key.to_s.to_sym]
+        when Array then node[key] if key.is_a?(Integer) && key.zero? && node.one?
+        else break nil
+        end
       end
     end
   end

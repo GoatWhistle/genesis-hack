@@ -80,11 +80,14 @@ module Service
         # @param analysis [Analysis]
         # @return [Hash] карты статусов и событий и пути до значений в ответе
         def status_section(analysis)
+          fields = ResponseFields.new(@rules, analysis.bindings)
           {
             status_map: analysis.statuses.status_map, event_map: analysis.statuses.event_map,
             status_field: analysis.statuses.status_path,
+            status_fields: fields.status_fields,
+            created_id_header: fields.created_id_header,
             error_map: ErrorMapper.new(@rules).call(status_operations(analysis.bindings)),
-            created_id_field: created_id_field(analysis.bindings)
+            created_id_field: fields.created_id_field
           }
         end
 
@@ -101,15 +104,6 @@ module Service
         # @return [Hash] запросы по ролям, ходящим к провайдеру
         def call_section(analysis)
           { calls: analysis.calls.requests }
-        end
-
-        # Путь к идентификатору операции в ответе на создание; не нашли — берём id.
-        # @param bindings [Hash{Symbol => Models::RoleBinding}]
-        # @return [Array<String>] путь до поля
-        def created_id_field(bindings)
-          schema = operation_with(bindings, :creates_operation)&.success_response&.dig(:schema)
-          patterns = @rules.callback_fields.fetch(:operation_id)
-          Parsing::SchemaProbe.new(schema).find(patterns)&.path || ["id"]
         end
 
         # Операции — источники состояний, в порядке доверия из контракта.

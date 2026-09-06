@@ -57,6 +57,9 @@ module Service
         # @param depth [Integer] сколько уровней осталось спуститься
         # @return [Array<Found>]
         def walk(node, path, depth)
+          return [] unless node.is_a?(Hash)
+          return walk(node[:items], path + [0], depth) if node[:type].to_s == "array"
+
           properties = properties_of(node)
           return [] if properties.nil?
 
@@ -74,7 +77,6 @@ module Service
         def properties_of(node)
           return nil unless node.is_a?(Hash)
 
-          node = node[:items] if node[:type].to_s == "array" && node[:items].is_a?(Hash)
           node[:properties] if node.is_a?(Hash) && node[:properties].is_a?(Hash)
         end
       end

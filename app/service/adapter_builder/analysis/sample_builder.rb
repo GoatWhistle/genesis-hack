@@ -18,7 +18,7 @@ module Service
         # @return [Hash, nil] пример объекта; nil, если схема не описывает объект
         def call(schema, overrides: {})
           sample = build(schema, 0)
-          return nil unless sample.is_a?(Hash)
+          return sample unless sample.is_a?(Hash) || sample.is_a?(Array)
 
           overrides.each { |path, value| assign(sample, Array(path), value) }
           sample
@@ -99,9 +99,7 @@ module Service
         # @param value [Object]
         # @return [void]
         def assign(sample, path, value)
-          *head, last = path
-          target = head.reduce(sample) { |node, key| node.is_a?(Hash) ? node[key] : nil }
-          target[last] = value if target.is_a?(Hash) && target.key?(last)
+          Parsing::DataPath.assign(sample, path, value)
         end
       end
     end

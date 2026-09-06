@@ -95,6 +95,7 @@ sources:
     inn: 'requisite(operation, "inn")'
     kpp: 'requisite(operation, "kpp")'
   path:
+    configured_parameter: 'requisite(operation, %<name>s)'
     provider_id: 'operation.provider_operation_id'
   headers:
     idempotency: 'operation.id'

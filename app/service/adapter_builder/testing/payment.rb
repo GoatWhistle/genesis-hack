@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "uri"
+
 module Service
   module AdapterBuilder
     module Testing
@@ -25,8 +27,26 @@ module Service
         # Совпадает с примером ответа на создание: по нему строится адрес статус-запроса.
         # @return [String]
         def provider_id
+          return location_id if @blueprint.created_id_header
+
           value = dig(success_response(create_role), Array(@blueprint.created_id_field))
           value.nil? ? PROVIDER_ID : value.to_s
+        end
+
+        def location_id
+          location = location_header
+          path = URI.parse(location.to_s).path.to_s
+          path.split("/").last&.gsub(/%[0-9a-f]{2}/i) do |byte|
+            byte[1..].to_i(16).chr
+          end || PROVIDER_ID
+        rescue URI::InvalidURIError
+          PROVIDER_ID
+        end
+
+        def location_header
+          item = @blueprint.fixtures.calls[create_role]
+          code = item.responses.keys.select { |key| key.start_with?("2") }.min
+          item.response_headers&.dig(code, @blueprint.created_id_header.downcase)
         end
 
         # @param role [Symbol] роль контракта
@@ -79,7 +99,7 @@ module Service
         # @param path [Array<String>] путь до значения
         # @return [Object, nil]
         def dig(body, path)
-          path.reduce(body) { |node, key| node.is_a?(Hash) ? node[key.to_s] : nil }
+          Parsing::DataPath.read(body, path)
         end
       end
     end
