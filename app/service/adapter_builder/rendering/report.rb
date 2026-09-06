@@ -5,22 +5,22 @@ require "yaml"
 module Service
   module AdapterBuilder
     module Rendering
-      # Отчёт о сборке: какой эндпоинт провайдера какой роли достался, по какому
-      # правилу и с каким счётом. Нужен, чтобы решение инструмента можно было
-      # проверить глазами и поправить правила, а не сгенерированный код.
+      # Отчёт о сборке: какой эндпоинт какой роли достался, с каким счётом и по каким правилам.
       class Report
         HEADER = <<~TEXT
-          # Что инструмент понял про API провайдера. Файл читается человеком: если роль
-          # назначена неверно, правьте правила профиля контракта и пересоберите.
+          # Что инструмент понял про API провайдера. Роль назначена неверно — правьте
+          # правила профиля и пересоберите.
         TEXT
 
         # @param blueprint [Models::Blueprint] всё, что инструмент решил
         # @param spec [Models::ApiSpec] разобранное описание
         # @param reference [String, Pathname] откуда описание взято
-        def initialize(blueprint, spec, reference)
+        # @param checks [Testing::Report, nil] чем кончилась проверка собранного класса
+        def initialize(blueprint, spec, reference, checks: nil)
           @blueprint = blueprint
           @spec = spec
           @reference = reference
+          @checks = checks
         end
 
         # @return [Hash{String => Object}] отчёт целиком; ключи строками — уходит в YAML
@@ -29,7 +29,7 @@ module Service
             "roles" => roles, "statuses" => @blueprint.status_map, "events" => @blueprint.event_map,
             "amount" => amount, "conditions" => conditions, "callback" => callback,
             "auth" => auth, "warnings" => @blueprint.warnings
-          )
+          ).merge(checks)
         end
 
         # Отчёт — такой же выходной файл, как остальные, и уходит тем же путём.
@@ -37,6 +37,14 @@ module Service
         def to_yaml = HEADER + to_h.to_yaml.sub("---\n", "")
 
         private
+
+        # Проверка собранного класса — часть отчёта наравне с разбором.
+        # @return [Hash] раздел с проверками; пустой, если проверки не было
+        def checks
+          return {} if @checks.nil?
+
+          { "checks" => @checks.to_h }
+        end
 
         # @return [Hash] по какому описанию, под какой контракт и для кого собрано
         def source
@@ -76,8 +84,7 @@ module Service
           }
         end
 
-        # Роль, принимающая уведомление, к провайдеру не ходит: её эндпоинт описывает
-        # запрос, который придёт к нам. В отчёте это разные вещи.
+        # Роль с webhook не ходит к провайдеру: её эндпоинт описывает входящий запрос.
         # @param role [Config::Settings::Role] роль контракта
         # @return [String] что происходит по этому эндпоинту
         def state(role)

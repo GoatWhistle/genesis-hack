@@ -3,14 +3,11 @@
 module Service
   module AdapterBuilder
     module Analysis
-      # Тестовые материалы: пример запроса к каждому эндпоинту, примеры всех
-      # описанных ответов и примеры уведомлений вместе с тем статусом, в который
-      # обёртка их переведёт. Всё собрано из описания провайдера, поэтому фикстуры
-      # можно подставлять в тесты сгенерированного класса как есть.
+      # Примеры запросов, ответов и уведомлений с ожидаемым статусом контракта.
       class FixturePlanner
-        # Один эндпоинт: чем к нему обращаются и чем он отвечает.
+        # Один эндпоинт: запрос к нему и его ответы.
         Case = Struct.new(:role, :title, :endpoint, :request, :responses, keyword_init: true)
-        # Одно уведомление и статус контракта, которым оно обернётся.
+        # Уведомление и статус контракта, в который оно переводится.
         Callback = Struct.new(:name, :payload, :expected, keyword_init: true)
         Result = Struct.new(:calls, :callbacks, keyword_init: true)
 
@@ -52,8 +49,7 @@ module Service
                    responses: responses(operation))
         end
 
-        # Примеры всех описанных ответов, а не только успешного: по ним видно, что
-        # обёртка получит на 422 и на 429, и есть чем накрыть тесты ошибок.
+        # Все описанные ответы, включая ошибочные: по ним проверяется разбор 4xx и 5xx.
         # @param operation [Models::ApiOperation]
         # @return [Hash{String => Hash}] код ответа → пример тела
         def responses(operation)
@@ -62,8 +58,7 @@ module Service
           end.compact
         end
 
-        # Пример провайдера точнее синтезированного: он согласован со схемой и
-        # показывает те значения, которые провайдер действительно присылает.
+        # Пример из описания приоритетнее синтезированного.
         # @param described [Object, nil] пример из описания
         # @param schema [Hash, nil] схема на случай, если примера нет
         # @return [Hash, nil]
@@ -73,8 +68,7 @@ module Service
           @sample.call(schema)
         end
 
-        # Пример из описания приходит с ключами-символами: в фикстуре ключи должны
-        # выглядеть так же, как их пишет провайдер.
+        # Ключи приводятся к тому виду, в каком их передаёт провайдер.
         # @param value [Object]
         # @return [Object] то же значение со строковыми ключами
         def as_data(value)
@@ -85,8 +79,7 @@ module Service
           end
         end
 
-        # По уведомлению на каждое событие, а если перечисления событий нет —
-        # на каждое состояние.
+        # По уведомлению на событие; без перечисления событий — на состояние.
         # @param bindings [Hash{Symbol => Models::RoleBinding}]
         # @return [Array<Callback>]
         def callbacks(bindings)
@@ -100,10 +93,9 @@ module Service
           build_callbacks(base, @statuses.status_map, :status)
         end
 
-        # Синтезированное тело даёт полную форму — со всеми полями, включая объект
-        # ошибки, — а пример провайдера поверх него даёт настоящие идентификаторы.
+        # Синтезированное тело даёт форму, пример из описания — настоящие значения.
         # @param operation [Models::ApiOperation]
-        # @return [Hash, nil] тело уведомления, в котором остаётся заменить событие
+        # @return [Hash, nil] тело уведомления до подстановки события
         def callback_body(operation)
           synthesized = @sample.call(operation.request_schema)
           described = operation.request_example
@@ -117,7 +109,7 @@ module Service
 
         # @param base [Hash] тело уведомления, общее для всех случаев
         # @param source [Hash{String => String}] событие или состояние → статус контракта
-        # @param kind [Symbol] :event или :status — чем названо уведомление
+        # @param kind [Symbol] :event или :status — по какому полю названо уведомление
         # @return [Array<Callback>]
         def build_callbacks(base, source, kind)
           source.map do |name, contract_status|
@@ -139,8 +131,7 @@ module Service
           target[last] = value if target.is_a?(Hash) && target.key?(last)
         end
 
-        # Событие подставляем как есть, а поле статуса — тем состоянием, которое
-        # переводится в тот же статус контракта: иначе пример противоречит сам себе.
+        # Поле статуса заполняется состоянием того же статуса контракта.
         # @param kind [Symbol] :event или :status
         # @param name [String] имя события или состояния
         # @param contract_status [String] статус контракта

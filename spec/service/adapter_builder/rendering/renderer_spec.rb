@@ -81,7 +81,7 @@ RSpec.describe Service::AdapterBuilder::Rendering::Renderer do
     end
 
     it "объясняет в комментарии, почему заглушка" do
-      expect(source).to include("Webhook в описании провайдера не найден")
+      expect(source).to include("Webhook не найден")
     end
 
     it "всё равно печатает метод контракта" do

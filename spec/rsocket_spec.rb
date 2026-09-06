@@ -1,8 +1,6 @@
 # frozen_string_literal: true
 
-# Классификатор — сменная часть сценария: правила, эмбеддинги и запрос в модель
-# подставляются одинаково. Проверяется именно подстановка, а не сами способы —
-# у каждого из них свои проверки.
+# Классификатор — сменная часть; проверяется подстановка, а не сами способы.
 RSpec.describe Rsocket do
   describe ".classifier" do
     it "по имени отдаёт классификатор на правилах" do
@@ -10,53 +8,65 @@ RSpec.describe Rsocket do
         .to be_a(Service::AdapterBuilder::Classification::Classifier)
     end
 
-    it "по имени отдаёт классификатор на эмбеддингах" do
-      expect(described_class.classifier("embeddings", rules))
-        .to be_a(Adapter::Classification::Embeddings)
-    end
-
-    it "по имени отдаёт классификатор на модели" do
-      expect(described_class.classifier("llm", rules)).to be_a(Adapter::Classification::Llm)
-    end
-
     it "пропускает готовый объект как есть: клиент переживает несколько сборок" do
-      ready = Adapter::Classification::Embeddings.new(rules, embedder: StubEmbedder.new([]))
+      ready = Service::AdapterBuilder::Classification::Classifier.new(rules)
       expect(described_class.classifier(ready, rules)).to be(ready)
     end
 
-    it "говорит, что известно, когда имени не знает" do
+    it "перечисляет то, что умеет, когда имени не знает" do
       expect { described_class.classifier("вектора", rules) }
-        .to raise_error(ArgumentError, /Известны: rules, embeddings, llm/)
+        .to raise_error(ArgumentError, /Известны: #{Rsocket::CLASSIFIERS.keys.join(", ")}/)
+    end
+  end
+
+  # Проверка — тоже сменная часть, и просят её явно.
+  describe ".tester" do
+    it "по просьбе отдаёт проверку на подставном провайдере" do
+      expect(described_class.tester(true, rules))
+        .to be_a(Service::AdapterBuilder::Testing::Tester)
+    end
+
+    it "без просьбы не проверяет ничего" do
+      expect(described_class.tester(nil, rules)).to be_nil
+    end
+
+    it "пропускает готовый объект как есть" do
+      ready = Service::AdapterBuilder::Testing::Tester.new(rules)
+      expect(described_class.tester(ready, rules)).to be(ready)
     end
   end
 
   describe Service::AdapterBuilder::Builder do
     it "без указаний раздаёт роли правилами" do
       expect(build_service("novapay").report.dig("roles", "create_request", "why"))
-        .to include("счёт 15 при пороге 10")
+        .to include("счёт 22 при пороге 13")
     end
 
     it "собирает тем классификатором, который ему дали" do
-      result = Rsocket.builder(rules: rules, classifier: llm)
+      ready = Service::AdapterBuilder::Classification::Classifier.new(rules)
+      result = Rsocket.builder(rules: rules, classifier: ready)
                       .call(reference: example_spec("novapay"), provider: "novapay")
-      expect(result.report.dig("roles", "create_request", "why")).to include("узнала сама")
+      expect(result.report.dig("roles", "create_request", "why")).to include("счёт 22")
     end
 
     it "не принимает объект, который раздавать роли не умеет" do
       expect { Rsocket.builder(rules: rules, classifier: "самотёком") }
         .to raise_error(ArgumentError, /неизвестный классификатор/)
     end
-  end
 
-  # Модель, «узнавшая» две обязательные роли: без них сборка не идёт, а
-  # необязательные здесь ни при чём.
-  def llm
-    Adapter::Classification::Llm.new(
-      rules,
-      client: StubClaude.assigning(
-        { role: "create_request", operation: 1, confidence: 0.9, reason: "узнала сама" },
-        { role: "fetch_status", operation: 2, confidence: 0.9, reason: "узнала сама" }
-      )
-    )
+    it "без проверки сборка идёт как раньше и ничего не исполняет" do
+      expect(build_service("novapay").checks).to be_nil
+    end
+
+    it "с проверкой кладёт её итог рядом с разбором" do
+      result = Rsocket.builder(rules: rules, tester: true)
+                      .call(reference: example_spec("novapay"), provider: "novapay")
+      expect(result.checks).to be_ok
+    end
+
+    it "не принимает объект, который проверять не умеет" do
+      expect { Rsocket.builder(rules: rules, tester: "на глаз") }
+        .to raise_error(ArgumentError, /проверяльщик не отвечает/)
+    end
   end
 end

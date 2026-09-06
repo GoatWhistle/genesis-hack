@@ -4,11 +4,9 @@ require "pathname"
 
 module Adapter
   module Loader
-    # Внимание: этот модуль перекрывает ::File, поэтому внутри работа с файлами
-    # идёт только через явный ::File / ::Pathname.
+    # Модуль перекрывает ::File: внутри только явные ::File и ::Pathname.
     module File
-      # Чтение описания API с диска. Формат определяем по расширению, а если оно
-      # ни о чём не говорит — пробуем YAML, он же разбирает и JSON.
+      # Чтение описания с диска: формат по расширению, иначе YAML (он же читает JSON).
       class SpecLoader
         include Service::AdapterBuilder::Ports::SpecSource
 

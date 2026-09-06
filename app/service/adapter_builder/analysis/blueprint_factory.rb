@@ -3,20 +3,13 @@
 module Service
   module AdapterBuilder
     module Analysis
-      # Разобранное описание и розданные роли → Blueprint для шаблона. Здесь никаких
-      # решений о ролях: они уже приняты, а этот класс только достаёт из описания
-      # всё, что понадобится напечатать.
-      #
-      # Имён ролей этот класс не знает: у каждого контракта они свои. Нужную роль он
-      # находит по признаку из конфига — кто создаёт операцию, кто принимает webhook,
-      # чьи ответы описывают состояния.
+      # Разобранное описание и розданные роли → Blueprint. Роль ищется по признаку, не по имени.
       class BlueprintFactory
-        # Разбор по частям: webhook, статусы, ограничения, вызовы, авторизация,
-        # тестовые материалы.
+        # Части разбора: webhook, статусы, ограничения, вызовы, авторизация, фикстуры.
         Analysis = Struct.new(:bindings, :callback, :statuses, :limits, :calls, :credentials,
                               :fixtures, keyword_init: true)
 
-        # @param rules [Ports::Rules] роли контракта, словари, статусы и ограничения
+        # @param rules [Ports::Rules] роли контракта, словари, статусы, ограничения
         def initialize(rules)
           @rules = rules
         end
@@ -35,7 +28,7 @@ module Service
 
         # @param spec [Models::ApiSpec]
         # @param bindings [Hash{Symbol => Models::RoleBinding}]
-        # @return [Analysis] итоги всех разборщиков
+        # @return [Analysis] результаты всех этапов разбора
         def analyse(spec, bindings)
           callback = CallbackAnalyzer.new(@rules).call(callback_operation(bindings))
           statuses = statuses_for(bindings)
@@ -43,7 +36,7 @@ module Service
                        **parts(spec, bindings, callback, statuses))
         end
 
-        # Разборщики, которым нужны итоги разбора webhook и состояний.
+        # Этапы разбора, зависящие от результатов разбора webhook и состояний.
         # @param spec [Models::ApiSpec]
         # @param bindings [Hash{Symbol => Models::RoleBinding}]
         # @param callback [CallbackAnalyzer::Result]
@@ -75,7 +68,7 @@ module Service
 
         # @param spec [Models::ApiSpec]
         # @param analysis [Analysis]
-        # @return [Hash] то, что переносится в Blueprint без обработки
+        # @return [Hash] поля, переносимые в Blueprint без обработки
         def rest(spec, analysis)
           {
             base_url: spec.base_url, http: @rules.http, bindings: analysis.bindings,
@@ -110,8 +103,7 @@ module Service
           { calls: analysis.calls.requests }
         end
 
-        # Где в ответе на создание лежит идентификатор операции провайдера. Не нашли —
-        # берём id: так обёртка хотя бы соберётся, а догадка попадёт в отчёт.
+        # Путь к идентификатору операции в ответе на создание; не нашли — берём id.
         # @param bindings [Hash{Symbol => Models::RoleBinding}]
         # @return [Array<String>] путь до поля
         def created_id_field(bindings)
@@ -120,8 +112,7 @@ module Service
           Parsing::SchemaProbe.new(schema).find(patterns)&.path || ["id"]
         end
 
-        # Чьи ответы описывают состояния операции. Порядок задан контрактом: у
-        # статус-запроса перечисление полнее всего, остальные идут подстраховкой.
+        # Операции — источники состояний, в порядке доверия из контракта.
         # @param bindings [Hash{Symbol => Models::RoleBinding}]
         # @return [Array<Models::ApiOperation>] операции этих ролей, которым нашёлся метод
         def status_operations(bindings)
@@ -130,14 +121,13 @@ module Service
 
         # @param bindings [Hash{Symbol => Models::RoleBinding}]
         # @param trait [Symbol] признак роли из Config::Settings::Role::TRAITS
-        # @return [Models::ApiOperation, nil] nil, если роли нет или она осталась заглушкой
+        # @return [Models::ApiOperation, nil] nil, если роль отсутствует или не занята
         def operation_with(bindings, trait)
           role = @rules.role_with(trait)
           role && bindings[role.name]&.operation
         end
 
-        # Всё, в чём инструмент не уверен, собирается в одном месте: и в сводку CLI,
-        # и в отчёт уходит один и тот же список.
+        # Предупреждения одним списком: и в сводку, и в отчёт.
         # @param analysis [Analysis]
         # @return [Array<String>]
         def warnings(analysis)
@@ -147,14 +137,14 @@ module Service
         end
 
         # @param bindings [Hash{Symbol => Models::RoleBinding}]
-        # @return [Array<String>] по строке на каждую нераспознанную роль
+        # @return [Array<String>] по строке на каждую незанятую роль
         def stub_warnings(bindings)
           stubs = bindings.values.reject(&:bound?)
           stubs.map { |binding| "#{binding.role.title}: #{binding.explanation}" }
         end
 
         # @param statuses [StatusMapper::Result]
-        # @return [Array<String>] состояния провайдера, которым не нашлось статуса контракта
+        # @return [Array<String>] состояния провайдера без соответствия в статусах контракта
         def status_warnings(statuses)
           statuses.unmapped.map { |token| "состояние «#{token}» не перевести в статус контракта" }
         end

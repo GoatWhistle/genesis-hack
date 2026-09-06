@@ -5,11 +5,10 @@ require "pathname"
 module Rsocket
   ROOT = Pathname.new(__dir__).parent.freeze
   APP = ROOT.join("app").freeze
-  # Собственное описание сервиса: его отдаёт ручка GET /openapi.yaml.
+  # Собственное описание сервиса, отдаваемое ручкой GET /openapi.yaml.
   OPENAPI = ROOT.join("docs", "openapi.yaml").freeze
 
-  # Порядок важен: адаптеры на этапе загрузки подписываются на порты, а стадии
-  # разбора ссылаются друг на друга по ходу конвейера.
+  # Порядок значим: адаптеры подключаются к портам, этапы разбора — друг к другу.
   FILES = [
     "models/api_operation", "models/api_spec",
     "models/role_binding", "models/constraint", "models/blueprint",
@@ -17,9 +16,6 @@ module Rsocket
     "adapter/s3/signature", "adapter/s3/client",
     "repositories/rules/store", "repositories/rules/local", "repositories/rules/s3",
     "adapter/upload/store", "adapter/upload/file", "adapter/upload/s3",
-    "adapter/embedding/voyage",
-    "adapter/classification/embeddings",
-    "adapter/classification/llm", "adapter/classification/llm/prompt",
     "config/rule", "config/settings", "config/catalog", "config/vocabulary",
     "config/importer", "config/storage",
     "service/adapter_builder/parsing/schema_probe",
@@ -38,6 +34,13 @@ module Rsocket
     "service/adapter_builder/analysis/call_planner",
     "service/adapter_builder/analysis/fixture_planner",
     "service/adapter_builder/analysis/blueprint_factory",
+    "service/adapter_builder/testing/report",
+    "service/adapter_builder/testing/stub_server",
+    "service/adapter_builder/testing/sandbox",
+    "service/adapter_builder/testing/payment",
+    "service/adapter_builder/testing/wire",
+    "service/adapter_builder/testing/scenario",
+    "service/adapter_builder/testing/tester",
     "service/adapter_builder/rendering/fixtures",
     "service/adapter_builder/rendering/renderer",
     "service/adapter_builder/rendering/report",
@@ -49,21 +52,40 @@ module Rsocket
     "controller/cli/summary", "controller/http/api"
   ].freeze
 
+  DEFAULT_CLASSIFIER = "rules"
+
+  # Смысловые классификаторы вне репозитория; подключаются, если файлы лежат рядом.
+  OPTIONAL = {
+    "embeddings" => ["adapter/embedding/voyage", "adapter/classification/embeddings"],
+    "llm" => ["adapter/classification/llm", "adapter/classification/llm/prompt"]
+  }.freeze
+
   FILES.each { |file| require APP.join("#{file}.rb").to_s }
 
-  # Чем раздаются роли. Правила из конфига — по умолчанию: они не ходят в сеть и
-  # ничего не стоят. Два других читают смысл описания и требуют ключа: эмбеддинги —
-  # VOYAGE_API_KEY, запрос в модель — ANTHROPIC_API_KEY.
+  # Способ доступен, если файлы есть и загрузились: нет гема — нет способа.
+  # @param files [Array<String>] файлы одного способа, в порядке загрузки
+  # @return [Boolean] можно ли им пользоваться
+  def self.optional(files)
+    return false unless files.all? { |file| APP.join("#{file}.rb").exist? }
+
+    files.each { |file| require APP.join("#{file}.rb").to_s }
+    true
+  rescue LoadError
+    false
+  end
+
+  # Доступные смысловые способы; список формируется один раз при загрузке.
+  AVAILABLE = OPTIONAL.select { |_, files| optional(files) }.keys.freeze
+
+  # Способы раздачи ролей; правила есть всегда, смысловые — если файлы найдены.
   CLASSIFIERS = {
     "rules" => ->(rules) { Service::AdapterBuilder::Classification::Classifier.new(rules) },
     "embeddings" => ->(rules) { Adapter::Classification::Embeddings.new(rules) },
     "llm" => ->(rules) { Adapter::Classification::Llm.new(rules) }
-  }.freeze
-
-  DEFAULT_CLASSIFIER = "rules"
+  }.select { |name, _| name == DEFAULT_CLASSIFIER || AVAILABLE.include?(name) }.freeze
 
   # @param kind [String, Symbol, #call] имя классификатора или готовый объект —
-  #   готовым удобно мерить: клиент и его соединение переживают несколько сборок
+  #   готовый объект позволяет переиспользовать клиент и соединение между сборками
   # @param rules [Config::Settings] правила разбора
   # @return [Service::AdapterBuilder::Ports::Classifier]
   # @raise [ArgumentError] классификатора с таким именем нет
@@ -77,29 +99,41 @@ module Rsocket
     factory.call(rules)
   end
 
-  # Собранный сценарий с настоящими адаптерами: чтение описания, печать через ERB
-  # и правила из выбранного хранилища. Единственное место, где порты соединяются
-  # с реализациями.
-  #
-  # Профиль контракта решает и правила разбора, и шаблоны печати, поэтому шаблоны
-  # берутся у самих правил: подменив профиль, получаем класс под другой интерфейс.
+  # Проверка собранного класса на его фикстурах; включается явно.
+  # @param kind [Boolean, #call, nil] true — обычная проверка, объект — как есть,
+  #   nil или false — не проверять
+  # @param rules [Config::Settings] правила разбора
+  # @return [Service::AdapterBuilder::Ports::Tester, nil]
+  # @raise [ArgumentError] проверять просят чем-то, что проверять не умеет
+  def self.tester(kind, rules)
+    return kind if kind.respond_to?(:call)
+    return nil if kind.nil? || kind == false
+    return Service::AdapterBuilder::Testing::Tester.new(rules) if kind == true
+
+    raise ArgumentError, "проверяльщик не отвечает на: call. Проверка просится " \
+                         "значением true либо готовым объектом"
+  end
+
+  # Сценарий с реальными адаптерами: единственное место связи портов с реализациями.
   # @param contract [String] имя профиля контракта
   # @param catalog [Config::Catalog] откуда берутся правила: диск или бакет
   # @param rules [Config::Settings] правила разбора
   # @param spec_source [Ports::SpecSource] откуда берём описание: файл или текст запроса
   # @param classifier [String, Symbol, #call, nil] чем раздавать роли: rules, embeddings
-  #   или llm; nil — как сказано в RSOCKET_CLASSIFIER, а без неё правила
+  #   или llm; nil — значение RSOCKET_CLASSIFIER, при её отсутствии — правила
+  # @param tester [Boolean, #call, nil] проверять ли собранный класс на фикстурах
   # @return [Service::AdapterBuilder::Builder]
   def self.builder(contract: Config::Catalog.default, catalog: Config::Catalog.new,
                    rules: Config::Importer.new(contract, catalog: catalog).call,
                    spec_source: Adapter::Loader::File::SpecLoader.new,
-                   classifier: nil)
+                   classifier: nil, tester: nil)
     Service::AdapterBuilder::Builder.new(
       spec_source: spec_source,
       renderer: Service::AdapterBuilder::Rendering::Renderer.new(rules.contract.outputs),
       rules: rules,
       classifier: classifier(classifier || ENV.fetch("RSOCKET_CLASSIFIER", DEFAULT_CLASSIFIER),
-                             rules)
+                             rules),
+      tester: tester(tester, rules)
     )
   end
 
@@ -116,7 +150,7 @@ module Rsocket
     }
   end
 
-  # HTTP-сервис: описание приходит текстом запроса, результат уходит в хранилище.
+  # HTTP-сервис: описание передаётся телом запроса, результат записывается в хранилище.
   # @param storage [Config::Storage]
   # @return [Controller::Http::Api]
   def self.api(storage: Config::Storage.for(:http))

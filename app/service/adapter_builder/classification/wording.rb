@@ -3,30 +3,24 @@
 module Service
   module AdapterBuilder
     module Classification
-      # Роль и операция словами. Классификаторы на правилах сверяют регулярки, а
-      # те, что читают смысл (эмбеддинги, LLM), работают с текстом — и текст этот
-      # нужно откуда-то взять, не заводя третьего описания ролей в конфиге.
-      #
-      # Эталон роли собирается из того же, что уже описано в правилах: названия
-      # роли, её признаков и слов, которыми провайдеры называют такую операцию.
-      # Слова достаются из регулярок архетипа — там они и перечислены. Добавили
-      # в base.yml новый синоним — его увидят все три классификатора сразу.
+      # Роль и операция словами: смысловым классификаторам нужен текст, а не регулярки.
       module Wording
-        # Поля, по которым правила ловят смысл. Регулярки по http_method и по
-        # форме пути смысла не несут — из них слов не берём.
-        MEANINGFUL = %w[operation_id summary description tags].freeze
+        # Поля с лексикой; http_method и форма пути слов не несут.
+        MEANINGFUL = %w[method_name operation_id summary description tags].freeze
 
-        # Что признак роли значит по-русски: эмбеддингу и модели нужны слова, а не
-        # символы из TRAITS.
+        # Признаки роли словами: модели нужны слова, а не символы из TRAITS.
         TRAITS = {
           calls_provider: "сервис сам отправляет такой запрос провайдеру",
           creates_operation: "с этой операции выплата начинается",
           receives_callback: "это входящее уведомление, его присылает провайдер"
         }.freeze
 
-        # Длинные описания операций режем: дальше первых строк идут детали схемы,
-        # которые размывают вектор и стоят денег.
+        # Длинные описания усекаются: дальше идут детали схемы.
         LIMIT = 600
+
+        # Отрицательный просмотр перечисляет то, чем роль НЕ является: слова из такого
+        # правила в эталон брать нельзя.
+        NEGATIVE = /\(\?<?!/
 
         module_function
 
@@ -52,14 +46,19 @@ module Service
           words.empty? ? nil : words.join(", ")
         end
 
-        # Слова из правил роли: регулярка вида (create|make|submit) — это и есть
-        # перечень синонимов, ради которого правила писались.
+        # Слова из правил роли: регулярка вида (create|make|submit) содержит перечень синонимов.
         # @param role [Config::Settings::Role]
         # @return [String, nil]
         def synonyms(role)
-          words = role.rules.select { |rule| MEANINGFUL.include?(rule.field) }
+          words = role.rules.select { |rule| synonymous?(rule) }
                       .flat_map { |rule| literals(rule.pattern.source) }.uniq
           words.empty? ? nil : "называется так: #{words.join(", ")}"
+        end
+
+        # @param rule [Config::Rule]
+        # @return [Boolean] перечисляет ли правило синонимы роли
+        def synonymous?(rule)
+          MEANINGFUL.include?(rule.field) && !NEGATIVE.match?(rule.pattern.source)
         end
 
         # @param source [String] исходник регулярки

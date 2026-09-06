@@ -4,16 +4,14 @@
 require "thor"
 require_relative "../app/boot"
 
-# Тонкая командная строка: разбор аргументов и печать результата, вся работа —
-# в менеджере сборок.
+# Командная строка: разбор аргументов и печать; работа — в менеджере сборок.
 class RsocketCLI < Thor
   include Controller::Cli::Summary
 
   CONTRACT = { aliases: "-c", default: Config::Catalog.default,
                desc: "профиль контракта, под который собираем" }.freeze
 
-  # Пайплайн работает локально: правила с диска, результат в output/. S3 здесь
-  # не нужен, но при желании включается тем же флагом.
+  # По умолчанию локальное хранилище; S3 включается тем же флагом.
   STORAGE = { default: Config::Storage::LOCAL,
               desc: "хранилище правил и результата: local или s3" }.freeze
 
@@ -29,10 +27,13 @@ class RsocketCLI < Thor
   option :storage, **STORAGE
   option :classifier, desc: "чем раздавать роли: #{Rsocket::CLASSIFIERS.keys.join(", ")} " \
                             "(по умолчанию #{Rsocket::DEFAULT_CLASSIFIER})"
+  option :test, type: :boolean, default: true,
+                desc: "в конце сборки подёргать собранный класс на его же фикстурах"
   # @return [void]
   def build
     outcome = assembler.call(spec: options[:spec], provider: options[:provider],
-                             contract: options[:contract], classifier: options[:classifier])
+                             contract: options[:contract], classifier: options[:classifier],
+                             tester: options[:test])
     print_summary(outcome)
   rescue StandardError => e
     warn "не собралось: #{e.message}"
@@ -60,8 +61,7 @@ class RsocketCLI < Thor
 
   desc "push", "Скопировать локальные правила и шаблоны в S3"
   option :prefix, default: "", desc: "перенести только часть: например contracts/space_payments/"
-  # Сервер работает с правилами из бакета, а редактируются они обычно в
-  # репозитории — эта команда переносит их туда, откуда сервер читает.
+  # Сервер читает правила из бакета, а изменяются они в репозитории; команда переносит их в бакет.
   # @return [void]
   def push
     say "правила: #{local_rules} → #{remote_rules}"

@@ -1,9 +1,7 @@
 # frozen_string_literal: true
 
 module Config
-  # Одно правило классификации: по какому полю операции смотрим, какой регуляркой
-  # и сколько очков даём за совпадение. Веса нужны, чтобы слабый признак (POST)
-  # не перевешивал сильный (глагол в operationId).
+  # Правило классификации: поле операции, регулярка и очки за совпадение.
   class Rule
     FIELDS = %w[method_name operation_id path http_method summary description tags].freeze
 
@@ -21,7 +19,7 @@ module Config
       @weight = weight.to_i
     end
 
-    # Совпало ли правило с текстом соответствующего поля.
+    # Совпадение правила с текстом соответствующего поля.
     # @param subject [Models::ApiOperation] кандидат на роль
     # @return [Boolean] nil в поле считается несовпадением
     def matches?(subject)
@@ -31,7 +29,7 @@ module Config
       pattern.match?(Array(value).join(" "))
     end
 
-    # @return [String] правило словами — уходит в mapping.yml
+    # @return [String] текстовое представление правила для mapping.yml
     def to_s
       "#{field} =~ /#{pattern.source}/"
     end

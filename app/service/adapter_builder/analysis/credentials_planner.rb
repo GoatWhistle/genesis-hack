@@ -3,13 +3,7 @@
 module Service
   module AdapterBuilder
     module Analysis
-      # Чем сервис подписывает запросы. Провайдер может предложить несколько
-      # равноправных схем — берём ту, что первой указана у операции создания,
-      # остальные уходят в отчёт как альтернативы.
-      #
-      # Здесь же схема превращается в строки контракта: как именно подписывается
-      # запрос, знает только контракт, и его заготовки лежат в его же конфиге.
-      # Шаблону остаётся их напечатать.
+      # Схема авторизации: первая у операции создания, остальные — в отчёт.
       class CredentialsPlanner
         Plan = Struct.new(:primary, :alternatives, :lines, :query_pair, :comment, :notes,
                           keyword_init: true)
@@ -24,14 +18,14 @@ module Service
                                                                     password], unsupported: []
         }.freeze
 
-        # @param rules [Ports::Rules] заготовки авторизации из профиля контракта
+        # @param rules [Ports::Rules] заготовки авторизации профиля контракта
         def initialize(rules)
           @rules = rules
         end
 
         # @param spec [Models::ApiSpec] описание с объявленными схемами авторизации
-        # @param operation [Models::ApiOperation, nil] операция создания — её порядок главный
-        # @return [Plan] primary равен nil, если схем в описании нет вовсе
+        # @param operation [Models::ApiOperation, nil] операция создания: её порядок схем главный
+        # @return [Plan] primary равен nil, если схемы в описании отсутствуют
         def call(spec, operation)
           schemes = spec.security_schemes.map { |scheme| build(scheme) }
           return missing if schemes.empty?
@@ -44,7 +38,7 @@ module Service
         private
 
         # @param scheme [Models::ApiSpec::SecurityScheme]
-        # @return [Scheme] чем и куда подписывать запрос
+        # @return [Scheme] вид подписи и место её размещения
         def build(scheme)
           kind = scheme.credential_kind
           Scheme.new(name: scheme.name, kind: kind, parameter: scheme.parameter || scheme.name,
@@ -58,7 +52,7 @@ module Service
           { lines: lines(scheme), query_pair: query_pair(scheme), comment: [comment(scheme)] }
         end
 
-        # @return [Plan] когда описание не объявило ни одной схемы
+        # @return [Plan] для описания без объявленных схем
         def missing
           Plan.new(alternatives: [], notes: [NO_SCHEMES], query_pair: nil,
                    lines: [@rules.auth_template(:missing)],
@@ -76,13 +70,12 @@ module Service
         end
 
         # @param scheme [Scheme]
-        # @return [Symbol] ключ заготовки: ключ уходит заголовком или в строке запроса
+        # @return [Symbol] ключ заготовки: заголовок или строка запроса
         def api_key_key(scheme)
           scheme.location == QUERY ? :api_key_query : :api_key_header
         end
 
-        # Ключ в строке запроса печатается не там, где подписываются заголовки,
-        # а рядом со сборкой адреса — поэтому он отдаётся шаблону отдельно.
+        # Ключ в строке запроса печатается при сборке адреса, поэтому отдаётся отдельно.
         # @param scheme [Scheme]
         # @return [String, nil]
         def query_pair(scheme)
@@ -99,14 +92,13 @@ module Service
 
         # @param key [Symbol] какая заготовка контракта нужна
         # @param scheme [Scheme] имена из описания провайдера
-        # @return [String] заготовка с подставленными именами
+        # @return [String] заготовка с подставленными значениями
         def template(key, scheme)
           format(@rules.auth_template(key).to_s,
                  parameter: scheme.parameter, name: scheme.name, kind: scheme.kind)
         end
 
-        # Порядок из операции важнее порядка объявления: у KassaBox ключ и Basic
-        # объявлены рядом, а выбирает провайдер тот, что указан у метода.
+        # Порядок схем у операции важнее порядка объявления.
         # @param schemes [Array<Scheme>]
         # @param operation [Models::ApiOperation, nil]
         # @return [Array<Scheme>] сначала та, которой сервис подписывает запросы
@@ -119,13 +111,13 @@ module Service
 
         # @param scheme [Scheme]
         # @param preferred [Array<String>] имена схем в порядке из операции
-        # @return [Array(Integer, String)] ключ сортировки; имя добавлено ради устойчивости
+        # @return [Array(Integer, String)] ключ сортировки; имя обеспечивает устойчивый порядок
         def position(scheme, preferred)
           [preferred.index(scheme.name) || preferred.size, scheme.name]
         end
 
         # @param ordered [Array<Scheme>]
-        # @return [Array<String>] пусто, если выбирать было не из чего
+        # @return [Array<String>] пустой список, если схема одна
         def notes(ordered)
           return [] if ordered.size < 2
 

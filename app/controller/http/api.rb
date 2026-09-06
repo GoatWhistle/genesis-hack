@@ -4,12 +4,9 @@ require "json"
 require "rack"
 
 module Controller
-  # HTTP поверх менеджера сборок. Слой тонкий: разобрать запрос, позвать сервис,
-  # напечатать результат JSON-ом. Ни одного решения о содержимом здесь не
-  # принимается — иначе HTTP и командная строка начали бы расходиться.
+  # HTTP поверх менеджера сборок: разобрать запрос, вызвать сервис, вернуть JSON.
   module Http
-    # Как читается запрос и как выглядит ответ. Вынесено из контроллера: это
-    # работа с протоколом, а не с содержимым.
+    # Чтение запроса и формат ответа.
     module Payload
       CONTENT_TYPE = "application/json; charset=utf-8"
       MULTIPART = "multipart/form-data"
@@ -25,10 +22,8 @@ module Controller
         upload.fetch(:tempfile).read.dup.force_encoding(Encoding::UTF_8)
       end
 
-      # Тело читаем сами и берём параметры только из строки запроса. Иначе Rack,
-      # увидев в Content-Type форму (а curl ставит её по умолчанию), разобрал бы
-      # тело как форму и оставил нас без описания. Кодировку назначаем сами:
-      # Rack отдаёт поток байтами, а описания приходят текстом в UTF-8.
+      # Тело читается напрямую, параметры — из строки запроса: иначе Rack разберёт
+      # тело как форму. Кодировку назначаем сами, Rack отдаёт байты.
       # @param request [Rack::Request]
       # @return [String]
       def body_of(request)
@@ -73,8 +68,7 @@ module Controller
         %w[POST /build] => :build
       }.freeze
 
-      # Ручки менеджера правил адресуют файл ключом, поэтому разбираются отдельно
-      # от таблицы точных совпадений: GET/PUT /rules/<ключ>.
+      # Ручки правил адресуют файл ключом: GET/PUT /rules/<ключ>.
       KEY_METHODS = { "GET" => :read_rule, "PUT" => :write_rule, "POST" => :write_rule }.freeze
 
       # @param library [Service::BuildManager::Library] правила и шаблоны
@@ -121,11 +115,12 @@ module Controller
         Rack::Utils.unescape(path.delete_prefix("#{RULES}/"))
       end
 
-      # Сам себе документация: по корню видно, что умеет сервис.
+      # Сводка о сервисе. Список классификаторов зависит от того, что есть на сервере.
       # @return [Array] ответ Rack
       def index(_request)
         json(200, service: "rsocket", contract: Config::Catalog.default,
                   rules: @library.location, output: @assembler.destination,
+                  classifiers: Rsocket::CLASSIFIERS.keys,
                   endpoints: endpoints, openapi: "GET /openapi.yaml")
       end
 
@@ -134,8 +129,7 @@ module Controller
         json(200, status: "ok", rules: @library.location, contracts: @library.names)
       end
 
-      # Сервис отдаёт собственное описание OpenAPI: тем же форматом, который он и
-      # разбирает, — его можно открыть в Swagger UI или скормить кодогенератору.
+      # Сервис отдаёт собственное описание OpenAPI.
       # @return [Array] ответ Rack
       def openapi(_request)
         [200, { "content-type" => YAML_TYPE }, [Rsocket::OPENAPI.read]]
@@ -160,8 +154,7 @@ module Controller
         json(200, key: key, content: @library.read(key))
       end
 
-      # Содержимое приходит либо телом запроса, либо файлом из формы: правила
-      # одинаково удобно и писать руками, и заливать готовым файлом.
+      # Содержимое приходит телом запроса или файлом из формы.
       # @param request [Rack::Request]
       # @param key [String] ключ файла правил
       # @return [Array] ответ Rack
@@ -169,8 +162,8 @@ module Controller
         json(200, saved: @library.save(key, content_of(request)))
       end
 
-      # Сборка целиком: описание приходит телом, имя провайдера и профиль —
-      # параметрами строки запроса.
+      # Сборка: описание в теле, провайдер и профиль — в строке запроса.
+      # test=1 включает проверку: она исполняет напечатанный код.
       # @param request [Rack::Request]
       # @return [Array] ответ Rack
       def build(request)
@@ -181,15 +174,17 @@ module Controller
         classifier = params["classifier"]
 
         built(@assembler.call(spec: spec, provider: provider, contract: contract,
-                              classifier: classifier))
+                              classifier: classifier, tester: params["test"] == "1"))
       end
 
       # @param outcome [Service::BuildManager::Assembler::Outcome]
       # @return [Array] ответ Rack: напечатанные файлы, куда они легли и разбор
       def built(outcome)
-        json(200, provider: outcome.provider, contract: outcome.contract,
-                  warnings: outcome.warnings, locations: outcome.locations,
-                  files: outcome.files, report: outcome.report)
+        payload = { provider: outcome.provider, contract: outcome.contract,
+                    warnings: outcome.warnings, locations: outcome.locations,
+                    files: outcome.files, report: outcome.report }
+        payload[:checks] = outcome.checks.to_h if outcome.checks
+        json(200, payload)
       end
 
       # @return [Array<String>] что умеет сервис

@@ -40,8 +40,9 @@ paths:
     get:
       tags: [Служебные]
       summary: Что умеет сервис
-      description: Короткая сводка: какие ручки есть, какой контракт по умолчанию,
-        где лежат правила и куда уходит результат.
+      description: >
+        Короткая сводка: какие ручки есть, какой контракт по умолчанию, где лежат
+        правила и куда уходит результат.
       operationId: getIndex
       responses:
         "200":
@@ -224,6 +225,10 @@ paths:
 
         Результат возвращается целиком в ответе и одновременно складывается в
         хранилище результата — в `output/<provider>/` или в бакет.
+
+        С `test=1` сборка заканчивается проверкой: собранный класс дёргают
+        по-настоящему на подставном провайдере, который отвечает примерами из
+        описания. Что сошлось, а что нет, приходит в `checks`.
       operationId: buildAdapter
       parameters:
         - name: provider
@@ -244,13 +249,27 @@ paths:
           in: query
           required: false
           description: >
-            Чем раздавать роли операциям: `rules` — правила с весами, `embeddings` —
-            косинусовая близость к эталону роли, `llm` — запрос в модель. Двум
-            последним нужны ключи в окружении сервера.
+            Чем раздавать роли операциям. `rules` — правила с весами, есть всегда.
+            Смысловые способы (`embeddings` — косинусовая близость к эталону роли,
+            `llm` — запрос в модель) остались работой на пробу и лежат вне
+            репозитория: сервер принимает их, только если их файлы на месте и в
+            его окружении есть ключи. Неизвестное имя приходит ошибкой 400, и в
+            ней перечислено, что этот сервер умеет.
           schema:
             type: string
-            enum: [rules, embeddings, llm]
             default: rules
+            example: rules
+        - name: test
+          in: query
+          required: false
+          description: >
+            `1` — в конце сборки подёргать собранный класс на его же фикстурах:
+            рядом поднимется подставной провайдер, отвечающий примерами из
+            описания. Итог придёт в `checks` и уйдёт в `mapping.yml`. По
+            умолчанию выключено: проверка исполняет напечатанный код.
+          schema:
+            type: string
+            enum: ["1"]
       requestBody:
         required: true
         description: Описание API провайдера
@@ -331,6 +350,14 @@ components:
           type: string
           description: Куда уходит результат сборки
           example: s3://rsocket/output
+        classifiers:
+          type: array
+          description: >
+            Чем этот сервер умеет раздавать роли: `rules` есть всегда, смысловые
+            способы появляются, только если их файлы лежат рядом с сервером
+          items:
+            type: string
+          example: [rules]
         endpoints:
           type: array
           items:
@@ -396,7 +423,8 @@ components:
           example: создание выплаты
         threshold:
           type: integer
-          description: Минимальный счёт: кандидат ниже порога роль не занимает
+          description: >
+            Минимальный счёт: кандидат ниже порога роль не занимает
           example: 10
         required:
           type: boolean
@@ -471,6 +499,47 @@ components:
             mapping.yml: "provider: novapay ..."
         report:
           $ref: "#/components/schemas/Report"
+        checks:
+          $ref: "#/components/schemas/Checks"
+
+    Checks:
+      type: object
+      description: >
+        Чем кончилась проверка собранного класса: приходит только при `test=1`.
+        Ни одна непрошедшая проверка сборку не отменяет — файлы уже напечатаны,
+        а решать, годятся ли они, будет человек.
+      properties:
+        passed:
+          type: integer
+          example: 28
+        failed:
+          type: integer
+          example: 0
+        notes:
+          type: array
+          description: Что проверить не удалось и почему
+          items:
+            type: string
+        checks:
+          type: array
+          items:
+            $ref: "#/components/schemas/Check"
+
+    Check:
+      type: object
+      properties:
+        role:
+          type: string
+          example: create_request
+        check:
+          type: string
+          example: запрос уходит на POST /payouts
+        ok:
+          type: boolean
+        detail:
+          type: string
+          description: Чем объясняется расхождение; у прошедшей проверки поля нет
+          example: пришло POST /wrong
 
     Report:
       type: object

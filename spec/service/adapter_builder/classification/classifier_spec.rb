@@ -3,8 +3,7 @@
 RSpec.describe Service::AdapterBuilder::Classification::Classifier do
   subject(:bindings) { described_class.new(rules).call(operations_for(provider)) }
 
-  # Описания в examples/ намеренно называют одно и то же разными словами: правила
-  # обязаны узнать роль по смыслу, а не по совпадению названий.
+  # Описания в examples/ зовут одно и то же разными словами.
   {
     "novapay" => { create_request: "create_payout", fetch_status: "get_payout_status",
                    process_callback: "payout_webhook", cancel_request: "cancel_payout" },

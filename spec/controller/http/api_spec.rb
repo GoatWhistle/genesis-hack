@@ -7,8 +7,7 @@ require "rack/mock_request"
 RSpec.describe Controller::Http::Api do
   subject(:http) { Rack::MockRequest.new(api) }
 
-  # Правила читаем настоящие, а результат складываем во временный каталог: тесты
-  # не должны ничего дописывать в репозиторий.
+  # Правила настоящие, результат — во временный каталог.
   let(:catalog) { Config::Catalog.new }
   let(:output) { Pathname.new(Dir.mktmpdir) }
   let(:spec_text) { File.read(example_spec("novapay")) }
@@ -41,6 +40,11 @@ RSpec.describe Controller::Http::Api do
       expect(body_of(http.get("/")).fetch("endpoints"))
         .to include("GET /health", "POST /build")
     end
+
+    # Список способов есть не везде: клиент узнаёт его у сервера.
+    it "называет, чем умеет раздавать роли" do
+      expect(body_of(http.get("/")).fetch("classifiers")).to include("rules")
+    end
   end
 
   describe "GET /contracts" do
@@ -60,12 +64,12 @@ RSpec.describe Controller::Http::Api do
 
     it "показывает, из чего профиль состоит в хранилище" do
       expect(profile.fetch("files"))
-        .to eq(%w[contract.yml fixtures.json.erb integration.md.erb service.rb.erb])
+        .to eq(%w[contract.yml fixtures.json.erb integration.md.erb probe.rb service.rb.erb])
     end
 
     it "перечисляет роли с признаками и порогами" do
       expect(profile.fetch("roles").first)
-        .to include("name" => "create_request", "threshold" => 10, "required" => true,
+        .to include("name" => "create_request", "threshold" => 13, "required" => true,
                     "traits" => %w[calls_provider creates_operation])
     end
   end
@@ -118,8 +122,7 @@ RSpec.describe Controller::Http::Api do
       expect(output.join("novapay", "novapay_service.rb")).to exist
     end
 
-    # Curl без Content-Type шлёт форму, и Rack разобрал бы тело как форму, съев
-    # описание. Параметры берём только из строки запроса.
+    # Curl без Content-Type шлёт форму: параметры берём только из строки запроса.
     it "читает описание из тела, даже если клиент назвал его формой" do
       form = "application/x-www-form-urlencoded"
       response = http.post("/build?provider=novapay", input: spec_text, "CONTENT_TYPE" => form)
@@ -129,6 +132,26 @@ RSpec.describe Controller::Http::Api do
     it "принимает описание в JSON" do
       as_json = JSON.generate(YAML.safe_load(spec_text, aliases: true))
       expect(http.post("/build?provider=novapay", input: as_json).status).to eq(200)
+    end
+
+    # Проверка исполняет напечатанный код, поэтому по HTTP её просят явно.
+    describe "когда просят проверить собранное" do
+      subject(:checks) do
+        body_of(http.post("/build?provider=novapay&test=1", input: spec_text)).fetch("checks")
+      end
+
+      it "дёргает собранный сервис и отчитывается, что сошлось" do
+        expect(checks).to include("failed" => 0, "passed" => a_value > 0)
+      end
+
+      it "кладёт тот же итог в отчёт, который уходит заказчику" do
+        expect(checks).to eq(body_of(http.post("/build?provider=novapay&test=1", input: spec_text))
+                               .dig("report", "checks"))
+      end
+    end
+
+    it "без просьбы ничего не исполняет" do
+      expect(body_of(response)).not_to have_key("checks")
     end
 
     describe "когда просят другой контракт" do
@@ -163,8 +186,7 @@ RSpec.describe Controller::Http::Api do
       expect(response).to have_attributes(status: 400, body: /контракт не найден/)
     end
 
-    # Нераспознанные обязательные роли — это не поломка сервера, а негодное
-    # описание: отвечаем 422 и объясняем, чего не хватило.
+    # Негодное описание — это 422, а не поломка сервера.
     it "отвечает 422, когда обязательные роли не распознались" do
       response = http.post("/build?provider=novapay", input: "openapi: 3.0.0\npaths: {}\n")
       expect(response).to have_attributes(status: 422, body: /не распознаны обязательные роли/)
@@ -176,8 +198,7 @@ RSpec.describe Controller::Http::Api do
     end
   end
 
-  # Правила и шаблоны интерфейсов правятся прямо через API. Хранилище здесь
-  # временное: тесты пишут в него, а не в репозиторий.
+  # Правила правятся через API; хранилище здесь временное.
   describe "менеджер правил" do
     let(:catalog) { Config::Catalog.new(store: store) }
     let(:store) do

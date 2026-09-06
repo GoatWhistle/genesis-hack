@@ -22,6 +22,14 @@ RSpec.describe Service::AdapterBuilder::Classification::Wording do
       expect(text).not_to include("post")
     end
 
+    # Правило вида \A(?!.*refund).*payout перечисляет то, чем роль не является.
+    it "не берёт слова из отрицательного просмотра" do
+      role = rules.role(role_name)
+      rule = Config::Rule.new(field: "method_name", pattern: '\A(?!.*возврат).*выплат', weight: 1)
+      allow(role).to receive(:rules).and_return(role.rules + [rule])
+      expect(described_class.role(role)).not_to include("возврат")
+    end
+
     describe "у роли, принимающей уведомление" do
       let(:role_name) { :process_callback }
 

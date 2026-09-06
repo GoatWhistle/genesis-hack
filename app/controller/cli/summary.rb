@@ -1,13 +1,11 @@
 # frozen_string_literal: true
 
 module Controller
-  # Командная строка — такой же тонкий слой над менеджером сборок, как и HTTP.
+  # Командная строка: слой над менеджером сборок, аналогичный HTTP-контроллеру.
   module Cli
-    # Печать сводок: что слушаем, что распозналось, что собралось. Вынесено из
-    # команды: разбор аргументов и вывод — разные заботы.
+    # Печать сводок: параметры запуска, распознавание, результат сборки.
     module Summary
-      # Печать сводок: что слушаем, что распозналось, что собралось. Вынесено из
-      # команды: разбор аргументов и вывод — разные заботы.
+      # Печать правил профиля: контракт, хранилище и состав ролей.
       # @param contract [String] имя профиля
       # @param rules [Config::Settings]
       # @param storage [Config::Storage]
@@ -27,7 +25,8 @@ module Controller
         say "  GET  /contracts    — профили контрактов и их роли"
         say "  GET  /rules        — что лежит в хранилище правил"
         say "  PUT  /rules/<ключ> — записать правила или шаблон"
-        say "  POST /build        — сборка: ?provider=имя[&contract=профиль], тело — описание"
+        say "  POST /build        — сборка: ?provider=имя[&contract=профиль][&test=1], " \
+            "тело — описание"
         say "хранилище: #{storage}"
       end
 
@@ -47,8 +46,19 @@ module Controller
         say "контракт: #{outcome.contract}"
         outcome.report.fetch("roles").each { |role, item| say "  #{role_state(role, item)}" }
         outcome.warnings.each { |warning| say "  ! #{warning}" }
+        print_checks(outcome.checks)
         say ""
         outcome.locations.each { |location| say "  #{location}" }
+      end
+
+      # Итог проверки; пройденные не перечисляются, они есть в mapping.yml.
+      # @param checks [Service::AdapterBuilder::Testing::Report, nil]
+      # @return [void]
+      def print_checks(checks)
+        return if checks.nil?
+
+        say "проверка: #{checks.summary}"
+        checks.failed.each { |check| say "  ! #{check}" }
       end
 
       # @param role [String] имя роли

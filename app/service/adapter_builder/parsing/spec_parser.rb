@@ -3,8 +3,7 @@
 module Service
   module AdapterBuilder
     module Parsing
-      # Сырое описание API → модели. Здесь же раскрываются $ref и склеиваются allOf,
-      # чтобы дальше никто не разбирался в устройстве документа OpenAPI.
+      # Сырое описание API → модели: $ref раскрыты, allOf объединены.
       class SpecParser
         HTTP_METHODS = %w[get post put patch delete].freeze
         JSON_CONTENT = %i[application/json application/problem+json].freeze
@@ -48,7 +47,7 @@ module Service
           end
         end
 
-        # Операции всех путей одним списком: параметры уровня пути достаются каждой.
+        # Операции всех путей одним списком; параметры уровня пути добавляются каждой.
         # @return [Array<Models::ApiOperation>]
         def parse_operations
           (@document[:paths] || {}).flat_map do |path, node|
@@ -117,8 +116,7 @@ module Service
           end
         end
 
-        # Тело берём в JSON: сервис общается с провайдером только им. Если JSON не описан,
-        # берём первый тип — по нему хотя бы видны поля.
+        # Тело берётся в JSON; без него — первый описанный тип.
         # @param content [Hash, nil] секция content
         # @return [Hash] схема выбранного типа и пример, если провайдер его привёл
         def json_body(content)
@@ -135,8 +133,7 @@ module Service
           content[key]
         end
 
-        # Пример, написанный самим провайдером, — лучший материал для фикстур: он
-        # заведомо согласован со схемой и с тем, что провайдер реально принимает.
+        # Пример из описания приоритетен для фикстур.
         # @param media [Hash, nil] описание типа содержимого
         # @return [Object, nil] пример из example или первый из examples
         def example_of(media)

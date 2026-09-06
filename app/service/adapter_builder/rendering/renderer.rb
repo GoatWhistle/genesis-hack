@@ -7,12 +7,7 @@ require "pathname"
 module Service
   module AdapterBuilder
     module Rendering
-      # Печать класса по шаблону профиля контракта. Шаблон ничего не вычисляет: всё,
-      # что требует решений, посчитано раньше и разложено по Blueprint, а здесь только
-      # форматирование — иначе правила размазываются между конфигом и вёрсткой.
-      #
-      # Шаблон приходит снаружи: под какой интерфейс собирается класс, решает профиль,
-      # а рендерер одинаково печатает любой из них.
+      # Печать файлов по шаблонам профиля; все решения приняты раньше и лежат в Blueprint.
       class Renderer
         include Ports::Renderer
 
@@ -21,8 +16,7 @@ module Service
           @outputs = outputs
         end
 
-        # Профиль объявляет несколько выходных файлов — сервис, инструкцию,
-        # фикстуры, — и все они печатаются из одного и того же Blueprint.
+        # Все выходные файлы профиля печатаются из одного Blueprint.
         # @param blueprint [Models::Blueprint]
         # @return [Hash{String => String}] имя файла → его содержимое
         def call(blueprint)
@@ -34,29 +28,27 @@ module Service
 
         private
 
-        # @param template [String] сам шаблон
-        # @param context [Context] в нём шаблон исполняется
+        # @param template [String] текст шаблона
+        # @param context [Context] контекст исполнения шаблона
         # @return [String]
         def render(template, context)
           ERB.new(template, trim_mode: "-").result(context.binding_for_template)
         end
 
-        # Печать литералов Ruby: тела запросов, хеши и пути до значений в ответе.
-        # Вынесено из контекста, потому что это работа с текстом, а не с решениями.
+        # Печать литералов Ruby: тела запросов, хеши, пути к значениям.
         module Literal
           LABEL = /\A[A-Za-z_][A-Za-z0-9_]*\z/
 
-          # Тело запроса как литерал: имена свойств оставляем ровно такими, как их
-          # назвал провайдер, — тело уходит в JSON без переименований.
+          # Имена свойств — как у провайдера: тело уходит в JSON без переименований.
           # @param fields [Array<PayloadBuilder::Field>]
           # @param indent [Integer] отступ уровня в пробелах
-          # @return [String] пары ключ-значение через запятую, без хвостовой
+          # @return [String] пары ключ-значение через запятую, без завершающей
           def payload_literal(fields, indent)
             pad = " " * indent
             fields.map { |field| "#{pad}#{field_literal(field, indent)}" }.join(",\n")
           end
 
-          # Путь до значения в теле ответа или webhook — имена полей как у провайдера.
+          # Путь к значению в теле ответа или webhook; имена полей — как у провайдера.
           # @param path [Array<String>]
           # @return [String] аргументы для чтения тела
           def path_literal(path)
@@ -73,7 +65,7 @@ module Service
 
           # @param field [PayloadBuilder::Field]
           # @param indent [Integer]
-          # @return [String] поле с незаполненным источником печатается с TODO
+          # @return [String] поле без источника печатается с комментарием TODO
           def field_literal(field, indent)
             key = field.name.match?(LABEL) ? "#{field.name}:" : "\"#{field.name}\":"
             return nested_literal(key, field, indent) unless field.leaf?
@@ -91,10 +83,9 @@ module Service
           end
         end
 
-        # Печать вызова транспорта: во что превращается запланированный запрос.
+        # Печать вызова транспорта из запланированного запроса.
         module Requests
-          # Запрос роли целиком: глагол, адрес с подставленными параметрами и всё,
-          # что у запроса есть кроме них.
+          # Запрос роли целиком: глагол, адрес с параметрами и остальное.
           # @param role [Symbol] имя роли контракта
           # @param body_method [String] имя приватного метода, собирающего тело
           # @return [String] вызов транспорта
@@ -122,8 +113,7 @@ module Service
             arguments
           end
 
-          # Адрес с подставленными параметрами пути: шаблон провайдера превращается
-          # в строку с интерполяцией, а не в format — так его читать проще.
+          # Шаблон пути печатается строкой с интерполяцией, а не через format.
           # @param call [Analysis::CallPlanner::Request]
           # @return [String] литерал строки на Ruby
           def path_expression(call)
@@ -134,7 +124,7 @@ module Service
           end
 
           # @param call [Analysis::CallPlanner::Request]
-          # @return [String] хвостовой комментарий, если параметр заполнить нечем
+          # @return [String] завершающий комментарий, если параметр нечем заполнить
           def todo_comment(call)
             return "" if call.unfilled.empty?
 
@@ -142,7 +132,7 @@ module Service
           end
         end
 
-        # Форматирование значений Blueprint в текст Ruby.
+        # Форматирование значений Blueprint в текст на Ruby.
         class Context
           include Literal
           include Requests
@@ -155,8 +145,7 @@ module Service
           # @return [Binding] контекст, в котором исполняется шаблон
           def binding_for_template = binding
 
-          # Поля Blueprint читаются в шаблоне по имени: перечислять два десятка делегатов
-          # ради этого незачем.
+          # Поля Blueprint доступны в шаблоне по имени; явные делегаты не объявляются.
           # @param name [Symbol]
           # @return [Object]
           def method_missing(name, *, &)
@@ -171,7 +160,7 @@ module Service
           end
 
           # @param role [Symbol]
-          # @return [Boolean] печатать запрос или заглушку
+          # @return [Boolean] занята ли роль: печатается запрос или заглушка
           def bound?(role) = @blueprint.bindings[role]&.bound? || false
 
           # @param role [Symbol]
@@ -186,7 +175,7 @@ module Service
           # @return [Models::RoleBinding, nil]
           def binding_for(role) = @blueprint.bindings[role]
 
-          # Комментарий над методом: откуда роль взялась и по каким правилам.
+          # Комментарий над методом: источник роли и сработавшие правила.
           # @param role [Symbol]
           # @return [Array<String>] строки комментария
           def origin(role)
@@ -197,27 +186,28 @@ module Service
           end
 
           # @param binding [Models::RoleBinding]
-          # @return [String] какой эндпоинт провайдера закрывает роль
+          # @return [String] эндпоинт провайдера, назначенный роли
           def endpoint_line(binding)
             operation = binding.operation
             "#{binding.role.title.capitalize}: #{binding.endpoint} (#{operation.method_name})"
           end
 
+          # Порог берётся у привязки: у классификатора может быть своя шкала.
           # @param binding [Models::RoleBinding]
-          # @return [String] счёт, порог и поля, по которым роль назначена
+          # @return [String] счёт, порог и поля, по которым назначена роль
           def rules_line(binding)
-            fields = binding.matched_rules.map(&:field).uniq.join(", ")
-            score = "счёт #{binding.score} при пороге #{binding.role.threshold}"
-            "роль назначена правилами: #{score} по полям #{fields}. Разбор — в mapping.yml"
+            fields = binding.matched_rules.map(&:field).uniq
+            score = "счёт #{binding.score} при пороге #{binding.threshold}"
+            source = fields.empty? ? "" : " по полям #{fields.join(", ")}"
+            "роль назначена: #{score}#{source}. Разбор — в mapping.yml"
           end
 
-          # @return [Array<Array(String, String)>] пары для карты статусов, ключи в нижнем регистре
+          # @return [Array<Array(String, String)>] пары карты статусов, ключи в нижнем регистре
           def status_entries
             status_map.map { |token, contract| [token.to_s.downcase, contract] }.uniq.sort
           end
 
-          # Запись ошибки отдаётся целиком: из чего она состоит, решает контракт —
-          # одному нужен символ HTTP-статуса, другому хватает кода.
+          # Запись ошибки печатается целиком: её состав задаёт контракт.
           # @return [Array<Array(Integer, Hash)>] код ответа и запись контракта
           def error_entries
             error_map.to_a
@@ -228,15 +218,14 @@ module Service
             error_map.values.map { |entry| [entry.fetch(:code), entry.fetch(:action)] }.uniq.sort
           end
 
-          # @param prefix [String] начало названия действия, например "retry"
-          # @return [Array<String>] коды ошибок, с которыми контракт делает это действие
+          # @param prefix [String] префикс названия действия, например "retry"
+          # @return [Array<String>] коды ошибок с этим действием
           def error_codes_for(prefix)
             matched = error_map.values.select { |entry| entry.fetch(:action).start_with?(prefix) }
             matched.map { |entry| entry.fetch(:code) }.uniq.sort
           end
 
-          # Границы суммы и список валют — константами, чтобы их было видно сразу.
-          # Имя константы назначил контракт, значение и источник нашёл разбор.
+          # Границы суммы и валюты печатаются константами; имя даёт контракт.
           # @return [Array<Array(String, Object, String)>] имя константы, значение и источник
           def constraint_constants
             constraints.map do |constraint|
@@ -255,14 +244,13 @@ module Service
             Fixtures.new(@blueprint).to_h
           end
 
-          # @param value [Object] что печатаем
-          # @return [String] JSON с отступами — файл читает человек
+          # @param value [Object] печатаемое значение
+          # @return [String] JSON с отступами
           def json(value)
             JSON.pretty_generate(value)
           end
 
-          # Переменные окружения, которые нужно задать перед первым запросом:
-          # адрес провайдера и ключи выбранной схемы авторизации.
+          # Переменные окружения: адрес провайдера и ключи выбранной схемы.
           # @return [Array<String>]
           def env_variables
             keys = Array(credentials.primary&.credentials)
@@ -277,7 +265,7 @@ module Service
             item&.endpoint
           end
 
-          # Способ выплаты из примера запроса — по нему заполняют каталог методов.
+          # Способ выплаты из примера запроса; используется при заполнении каталога методов.
           # @return [String, nil]
           def recipient_type
             sample = fixtures.calls.values.first&.request
@@ -287,7 +275,7 @@ module Service
             nested && nested["type"]
           end
 
-          # @return [Boolean] есть ли чем проверять подпись webhook
+          # @return [Boolean] достаточно ли данных для проверки подписи webhook
           def signature?
             callback.supported && !callback.signature_header.nil? &&
               !callback.signature_algorithm.nil?

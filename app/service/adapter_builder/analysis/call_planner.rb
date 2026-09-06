@@ -3,9 +3,7 @@
 module Service
   module AdapterBuilder
     module Analysis
-      # Чем сервис ходит к провайдеру: глагол, адрес, чем заполнить параметры пути
-      # и запроса, какие заголовки добавить и что положить в тело. Всё это берётся
-      # из описания операции: посредника между сервисом и провайдером нет.
+      # Параметры запроса к провайдеру: глагол, адрес, параметры, заголовки, тело.
       class CallPlanner
         # Один запрос к провайдеру целиком.
         Request = Struct.new(:http_method, :path, :path_arguments, :query, :headers, :payload,
@@ -13,13 +11,12 @@ module Service
 
         Plan = Struct.new(:requests, :warnings, keyword_init: true)
 
-        # @param rules [Ports::Rules] роли контракта и словари полей и параметров
+        # @param rules [Ports::Rules] роли контракта, словари полей и параметров
         def initialize(rules)
           @rules = rules
         end
 
-        # Ролей может быть сколько угодно и называться они могут как угодно: планируем
-        # запрос каждой, помеченной признаком calls_provider.
+        # Запрос планируется для каждой роли с признаком calls_provider.
         # @param bindings [Hash{Symbol => Models::RoleBinding}] розданные роли
         # @return [Plan] запросы по ролям, которым нашлась операция
         def call(bindings)
@@ -47,8 +44,7 @@ module Service
                       headers: body.headers, payload: body.fields, unfilled: @unfilled)
         end
 
-        # Параметры пути заполняются по словарю: имя вида payout_id узнаётся регуляркой,
-        # а не совпадением с конкретным провайдером.
+        # Параметры пути заполняются по словарю: payout_id узнаётся регуляркой.
         # @param operation [Models::ApiOperation]
         # @return [Hash{String => String}] имя параметра → выражение на Ruby
         def path_arguments(operation)
@@ -57,8 +53,7 @@ module Service
           end
         end
 
-        # Необязательные параметры запроса пропускаем: провайдер и сам считает их
-        # необязательными, а угадывать значение мы не беремся.
+        # Необязательные параметры запроса пропускаются.
         # @param operation [Models::ApiOperation]
         # @return [Hash{String => String}] имя параметра → выражение на Ruby
         def query(operation)
@@ -66,10 +61,9 @@ module Service
           required.to_h { |parameter| [parameter[:name], expression(parameter, operation)] }
         end
 
-        # Незаполненный параметр не превращается в nil молча: он попадает и в
-        # предупреждения отчёта, и в TODO рядом с самим запросом.
+        # Незаполненный параметр уходит в предупреждения и в TODO рядом с запросом.
         # @param parameter [Hash] описание параметра
-        # @param operation [Models::ApiOperation] нужна, чтобы назвать место в предупреждении
+        # @param operation [Models::ApiOperation] источник имени операции для предупреждения
         # @return [String] выражение из словаря либо "nil"
         def expression(parameter, operation)
           entry = @rules.field_for(@rules.path_params, snake_case(parameter[:name]))
@@ -82,7 +76,7 @@ module Service
         end
 
         # @param value [String]
-        # @return [String] имя параметра в том виде, в каком его ищет словарь
+        # @return [String] имя параметра в форме, принятой в словаре
         def snake_case(value)
           value.gsub(/([a-z\d])([A-Z])/, '\1_\2').tr("-", "_").downcase
         end

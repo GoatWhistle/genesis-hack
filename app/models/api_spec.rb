@@ -1,11 +1,11 @@
 # frozen_string_literal: true
 
 module Models
-  # Описание API целиком: то, что нужно и классификатору, и шаблону.
+  # Описание API целиком: данные, используемые классификатором и шаблоном.
   class ApiSpec
     Server = Struct.new(:url, :description, keyword_init: true)
     SecurityScheme = Struct.new(:name, :type, :location, :parameter, :scheme, keyword_init: true) do
-      # Чем сервис подписывает запрос по этой схеме.
+      # Вид ключа, которым подписывается запрос по этой схеме.
       # @return [Symbol] :api_key, :basic, :bearer или :unsupported
       def credential_kind
         return :api_key if type == "apiKey"
@@ -36,13 +36,13 @@ module Models
       @schemas = schemas
     end
 
-    # Адрес провайдера по умолчанию — уходит в ENV.fetch сгенерированного класса.
+    # Адрес провайдера по умолчанию; подставляется в ENV.fetch сгенерированного класса.
     # @return [String, nil]
     def base_url
       servers.first&.url
     end
 
-    # Название и описание одной строкой: в них провайдер называет лимиты словами.
+    # Название и описание одной строкой; используются при поиске ограничений в тексте.
     # @return [String]
     def text
       [title, description].compact.join("\n")

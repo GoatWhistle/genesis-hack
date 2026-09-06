@@ -1,21 +1,20 @@
 # frozen_string_literal: true
 
 module Models
-  # Итог классификации по одной роли: какая операция провайдера её заняла, с каким
-  # счётом и по каким правилам. Пустая привязка — повод отрендерить заглушку.
+  # Результат классификации роли; пустая привязка означает заглушку.
   class RoleBinding
     attr_reader :role, :operation, :score, :matched_rules, :reason
 
     # @param role [Config::Settings::Role] роль контракта
-    # @param operation [Models::ApiOperation, nil] занявшая её операция; nil — заглушка
-    # @param score [Numeric] набранный счёт: очки у правил, близость или уверенность
-    #   у смысловых классификаторов
-    # @param matched_rules [Array<#to_s>] сработавшие правила; у классификатора,
-    #   который правил не читает, список пустой
-    # @param reason [String, nil] объяснение решения своими словами. У правил его
-    #   заполняет только заглушка: счёт и список правил объясняют себя сами
-    # @param threshold [Numeric, nil] порог, с которым сравнивался счёт; nil — порог
-    #   роли из конфига. У смысловых классификаторов своя шкала, и порог свой
+    # @param operation [Models::ApiOperation, nil] занявшая роль операция; nil — заглушка
+    # @param score [Numeric] набранный счёт: очки правил либо близость или уверенность
+    #   смыслового классификатора
+    # @param matched_rules [Array<#to_s>] сработавшие правила; пустой список у
+    #   классификаторов, не использующих правила
+    # @param reason [String, nil] текстовое объяснение решения. У правил заполняется
+    #   только для незанятой роли: счёт и список правил объясняют решение сами
+    # @param threshold [Numeric, nil] порог сравнения счёта; nil — порог роли из
+    #   конфигурации. У смысловых классификаторов своя шкала и свой порог
     def initialize(role:, operation: nil, score: 0, matched_rules: [], reason: nil,
                    threshold: nil)
       @role = role
@@ -44,7 +43,7 @@ module Models
       role.name
     end
 
-    # Человеческое объяснение решения — уходит в mapping.yml и в комментарий кода.
+    # Текстовое объяснение решения; записывается в mapping.yml и в комментарий кода.
     # @return [String]
     def explanation
       return reason if reason

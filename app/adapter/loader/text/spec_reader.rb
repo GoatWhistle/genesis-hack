@@ -2,9 +2,7 @@
 
 module Adapter
   module Loader
-    # Описание, пришедшее не файлом, а текстом: телом HTTP-запроса, строкой из
-    # очереди, куском из теста. Сценарий сборки разницы не видит — для него это
-    # тот же порт SpecSource.
+    # Описание, полученное текстом, а не файлом.
     module Text
       class SpecReader
         include Service::AdapterBuilder::Ports::SpecSource
@@ -25,8 +23,7 @@ module Adapter
 
         private
 
-        # Формат узнаём по первому непробельному символу: YAML разобрал бы и JSON,
-        # но родной разборщик объясняет ошибку в JSON понятнее.
+        # Формат — по первому непробельному символу: разборщик JSON точнее в ошибках.
         # @param content [String]
         # @return [Boolean]
         def json?(content) = content.lstrip.start_with?(JSON_START)

@@ -2,8 +2,7 @@
 
 module Adapter
   module Upload
-    # Результат в бакете: <prefix>/<provider>/<файл>. Так работает HTTP-сервер —
-    # ему некуда писать на диск, да и результат обычно нужен не ему самому.
+    # Результат в бакете: <prefix>/<provider>/<файл>.
     class S3
       include Store
 

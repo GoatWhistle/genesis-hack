@@ -3,9 +3,7 @@
 module Service
   module AdapterBuilder
     module Rendering
-      # Тестовые материалы в том виде, в каком они уходят в fixtures.json. Разделы
-      # называются именами ролей контракта, поэтому файл сам подстраивается под
-      # интерфейс: у одного контракта это create_request, у другого send_payout.
+      # Документ fixtures.json. Разделы названы именами ролей контракта.
       class Fixtures
         # @param blueprint [Models::Blueprint] всё, что инструмент решил
         def initialize(blueprint)
@@ -13,28 +11,27 @@ module Service
           @fixtures = blueprint.fixtures
         end
 
-        # @return [Hash{String => Object}] документ целиком; ключи строками — уходит в JSON
+        # @return [Hash{String => Object}] документ целиком; ключи строками для печати в JSON
         def to_h
           calls.merge("callbacks" => callbacks, "statuses" => @blueprint.status_map)
         end
 
         private
 
-        # @return [Hash] раздел на каждую роль, ходящую к провайдеру
+        # @return [Hash] по разделу на каждую роль, обращающуюся к провайдеру
         def calls
           @fixtures.calls.to_h { |role, item| [role.to_s, call(item)] }
         end
 
         # @param item [Analysis::FixturePlanner::Case]
-        # @return [Hash] чем к эндпоинту обращаются и чем он отвечает
+        # @return [Hash] запрос к эндпоинту и его ответы
         def call(item)
           section = { "title" => item.title, "endpoint" => item.endpoint }
           section["request"] = item.request unless item.request.nil?
           section.merge("responses" => item.responses)
         end
 
-        # Уведомление вместе с тем статусом, в который его переведёт обёртка: по
-        # этой паре пишется тест на обработку колбэка.
+        # Уведомление и статус, в который его переводит собранный класс.
         # @return [Hash] событие → пример тела и ожидаемый статус
         def callbacks
           @fixtures.callbacks.to_h do |item|

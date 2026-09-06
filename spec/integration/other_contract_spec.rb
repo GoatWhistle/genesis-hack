@@ -2,9 +2,7 @@
 
 require "webmock/rspec"
 
-# Проверка того, что инструмент не привязан к одному интерфейсу: по тому же
-# описанию провайдера собирается класс под другой контракт — с другими именами
-# методов, другим словарём состояний и отказом через исключение, а не Result.
+# По тому же описанию собирается класс под другой контракт.
 RSpec.describe "сборка под контракт plain_client" do
   subject(:client) { Payouts::NovapayClient.new }
 
@@ -19,8 +17,7 @@ RSpec.describe "сборка под контракт plain_client" do
   before { ENV["NOVAPAY_API_KEY"] = "ключ" }
 
   describe "распознавание чужого API" do
-    # Правила распознавания общие: роли называются иначе, но операции провайдера
-    # разошлись по ним ровно так же, как под контрактом заказчика.
+    # Правила общие: роли зовутся иначе, но операции разошлись так же.
     it "отдаёт ролям контракта те же операции провайдера" do
       bindings = build_service("novapay", contract: "plain_client").blueprint.bindings
       expect(bindings.transform_values { |binding| binding.operation&.method_name })

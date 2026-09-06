@@ -46,8 +46,7 @@ RSpec.describe Service::BuildManager::Library do
         .to include(kind: "template", bytes: template.bytesize)
     end
 
-    # Испорченные правила иначе свалили бы не запись, а следующую сборку — и
-    # разбираться пришлось бы уже другому человеку.
+    # Иначе ошибка всплыла бы не на записи, а на следующей сборке.
     it "не принимает сломанный YAML" do
       expect { library.save("base.yml", "archetypes: [\n") }
         .to raise_error(ArgumentError, /не разобрать YAML/)
@@ -72,7 +71,8 @@ RSpec.describe Service::BuildManager::Library do
     it "показывает, из чего профиль состоит и что печатает" do
       expect(library.profile("space_payments"))
         .to include(title: a_string_including("Space Payments"), default: true,
-                    files: %w[contract.yml fixtures.json.erb integration.md.erb service.rb.erb],
+                    files: %w[contract.yml fixtures.json.erb integration.md.erb probe.rb
+                              service.rb.erb],
                     outputs: %w[<provider>_service.rb INTEGRATION.md fixtures.json])
     end
 

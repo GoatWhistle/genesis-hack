@@ -3,9 +3,7 @@
 module Service
   module AdapterBuilder
     module Analysis
-      # Разбор webhook: где в теле лежит идентификатор операции, событие, статус и
-      # код ошибки, и чем подписан запрос. Провайдер может webhook не публиковать —
-      # тогда обёртка честно скажет, что колбэк не поддержан.
+      # Разбор webhook: где в теле идентификатор, событие, статус, код ошибки и чем подписан запрос.
       class CallbackAnalyzer
         Result = Struct.new(:supported, :operation_path, :event_path, :status_path, :error_path,
                             :signature_header, :signature_algorithm, :notes, keyword_init: true)
@@ -25,9 +23,9 @@ module Service
                      **body_fields(operation), **signature(operation, header))
         end
 
-        # Где в теле webhook лежат идентификатор, событие, статус и код ошибки.
+        # Расположение идентификатора, события, статуса и кода ошибки в теле webhook.
         # @param operation [Models::ApiOperation]
-        # @return [Hash{Symbol => Array<String>, nil}] пути до полей
+        # @return [Hash{Symbol => Array<String>, nil}] пути к полям
         def body_fields(operation)
           probe = Parsing::SchemaProbe.new(operation.request_schema)
           fields = @rules.callback_fields
@@ -42,14 +40,14 @@ module Service
         private
 
         # @param operation [Models::ApiOperation]
-        # @param header [Hash, nil] параметр-заголовок с подписью
+        # @param header [Hash, nil] параметр-заголовок, содержащий подпись
         # @return [Hash{Symbol => String, nil}]
         def signature(operation, header)
           { signature_header: header&.fetch(:name),
             signature_algorithm: signature_algorithm(operation, header) }
         end
 
-        # @return [Result] заготовка для провайдера без webhook
+        # @return [Result] результат для провайдера без описанного webhook
         def unsupported
           Result.new(supported: false,
                      notes: ["провайдер не описывает webhook — статус узнаётся опросом"])
@@ -57,7 +55,7 @@ module Service
 
         # @param probe [Parsing::SchemaProbe]
         # @param patterns [Array<Regexp>]
-        # @return [Array<String>, nil] путь до поля
+        # @return [Array<String>, nil] путь к полю
         def path(probe, patterns)
           probe.find(patterns)&.path
         end
@@ -76,15 +74,14 @@ module Service
         end
 
         # @param operation [Models::ApiOperation]
-        # @return [Hash, nil] параметр-заголовок, опознанный правилами как подпись
+        # @return [Hash, nil] параметр-заголовок, распознанный правилами как подпись
         def signature_header(operation)
           operation.header_parameters.find do |parameter|
             @rules.header_kind(parameter[:name]) == :signature
           end
         end
 
-        # Алгоритм ищем в описании операции и самого заголовка: провайдеры пишут его
-        # словами, отдельного поля в OpenAPI под это нет.
+        # Алгоритм ищется в тексте: отдельного поля под него в OpenAPI нет.
         # @param operation [Models::ApiOperation]
         # @param header [Hash, nil]
         # @return [String, nil] например sha256
@@ -100,7 +97,7 @@ module Service
         end
 
         # @param header [Hash, nil]
-        # @return [Array<String>] что сказать про подпись в отчёте
+        # @return [Array<String>] сообщения о подписи для отчёта
         def notes(header)
           return ["подпись в описании webhook не найдена — проверять нечего"] if header.nil?
 

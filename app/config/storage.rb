@@ -1,11 +1,7 @@
 # frozen_string_literal: true
 
 module Config
-  # Где лежат правила и куда уходит результат. Выбор делается один раз при запуске
-  # и дальше не меняется: командная строка работает локально, HTTP-сервер — в S3.
-  #
-  # S3 можно не настраивать вовсе: тогда обе стороны работают с диском, и для
-  # запуска инструмента не нужно ничего, кроме самого репозитория.
+  # Расположение правил и результата; выбирается один раз при запуске.
   class Storage
     LOCAL = "local"
     S3 = "s3"
@@ -13,9 +9,7 @@ module Config
     REQUIRED = %w[RSOCKET_S3_ENDPOINT RSOCKET_S3_BUCKET
                   RSOCKET_S3_ACCESS_KEY_ID RSOCKET_S3_SECRET_ACCESS_KEY].freeze
 
-    # Командная строка работает локально, HTTP-сервер — через S3. Переменная
-    # окружения перекрывает и то, и другое: RSOCKET_STORAGE=local выключает S3
-    # совсем, и тогда сервер тоже работает с диском.
+    # Умолчания: CLI — локально, сервер — S3; RSOCKET_STORAGE переопределяет оба.
     # @param role [Symbol] :cli или :http
     # @param env [Hash]
     # @return [Storage]
@@ -79,8 +73,7 @@ module Config
       @env.fetch("RSOCKET_S3_#{section.to_s.upcase}_PREFIX", section.to_s)
     end
 
-    # Настройки проверяем на старте, а не на первом запросе: неполный конфиг
-    # должен ронять запуск сразу и с перечислением того, чего не хватает.
+    # Настройки проверяются при запуске, а не при первом запросе.
     # @return [void]
     # @raise [ArgumentError] выбран S3, но настроек нет
     def check!
