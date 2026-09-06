@@ -4,6 +4,8 @@ import type { PageProps } from "~/layout/types";
 import type { ContractProfile } from "~/shared/api/types";
 import { fetchContracts, readRule, writeRule } from "~/shared/api/client";
 import { defaultContract, profiles as bakedProfiles } from "~/shared/api/runs";
+import { ArrowRight } from "~/shared/design/ArrowRight";
+import { SwitchTabs } from "~/shared/ui/SwitchTabs";
 
 const CONTRACT_SELECTION_KEY = "rsocket:selected-contract";
 const validName = /^[a-z0-9][a-z0-9_-]*$/;
@@ -131,20 +133,18 @@ export const ContractUpload = ({ go }: PageProps) => {
 
         <div className="contract-upload-field">
           <span className="label">Использовать шаблоны профиля</span>
-          <div className="switch" role="group" aria-label="Профиль шаблонов">
-            {profiles.map((profile) => (
-              <button
-                type="button"
-                className="switch-item mono"
-                key={profile.name}
-                aria-pressed={profile.name === base}
-                title={profile.title}
-                onClick={() => setBase(profile.name)}
-              >
-                {profile.name}
-              </button>
-            ))}
-          </div>
+          <SwitchTabs
+            label="Профиль шаблонов"
+            group="contract-base"
+            role="group"
+            options={profiles.map((profile) => ({
+              id: profile.name,
+              label: profile.name,
+              title: profile.title
+            }))}
+            current={base}
+            onPick={setBase}
+          />
         </div>
 
         <div className="contract-upload-filebox">
@@ -195,7 +195,8 @@ export const ContractUpload = ({ go }: PageProps) => {
             <strong className="mono">{saved}</strong>
           </div>
           <button type="button" className="btn btn-primary" onClick={() => go("/lab")}>
-            Разобрать документ с этим контрактом →
+            Разобрать документ с этим контрактом
+            <ArrowRight size={14} />
           </button>
         </div>
       ) : null}

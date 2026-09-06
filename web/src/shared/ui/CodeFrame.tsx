@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import { RubyMark } from "~/shared/design/RubyMark";
 import "./codeframe.css";
 
 const LANG_TITLE: Record<string, string> = {
@@ -35,7 +36,9 @@ export const CodeFrame = ({ name, lang, code, side, actions, children }: CodeFra
     <figcaption className="code-frame-head">
       <span className="code-frame-name mono">{name}</span>
       <span className="code-frame-meta">
-        <span className="code-frame-lang">{langTitle(lang)}</span>
+        <span className="code-frame-lang">
+          {lang === "ruby" ? <RubyMark /> : langTitle(lang)}
+        </span>
         <span className="code-frame-dot" aria-hidden="true" />
         <span className="code-frame-size mono">{countLines(code)} строк</span>
         <span className="code-frame-dot" aria-hidden="true" />

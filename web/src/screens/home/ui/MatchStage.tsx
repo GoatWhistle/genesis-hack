@@ -3,6 +3,35 @@ import type { PageProps } from "~/layout/types";
 import { providers, roleOrder } from "~/shared/api/runs";
 import { isBound } from "~/shared/api/types";
 import { useBakedRun } from "~/shared/api/useRun";
+import { useHighlight } from "~/shared/lib/useHighlight";
+import { RubyMark } from "~/shared/design/RubyMark";
+import { ArrowRight } from "~/shared/design/ArrowRight";
+import { SlidingPlate } from "~/shared/ui/SlidingPlate";
+
+interface PreviewProps {
+  file: string;
+  code: string;
+}
+
+const StagePreview = ({ file, code }: PreviewProps) => {
+  const html = useHighlight(code, "ruby");
+
+  return (
+    <div className="stage-code-preview">
+      <div className="stage-code-head">
+        <span className="mono">{file}</span>
+        <RubyMark />
+      </div>
+      {html ? (
+        <div className="stage-code-body" dangerouslySetInnerHTML={{ __html: html }} />
+      ) : (
+        <pre>
+          <code>{code}</code>
+        </pre>
+      )}
+    </div>
+  );
+};
 
 const CONTRACT = "space_payments";
 const DEFAULT_PROVIDER = "kassabox";
@@ -39,6 +68,7 @@ const sourcePreview = (source: string, method: string | undefined) => {
 
 export const MatchStage = ({ go }: PageProps) => {
   const [provider, setProvider] = useState(DEFAULT_PROVIDER);
+  const [pickHost, setPickHost] = useState<HTMLDivElement | null>(null);
   const { run, loading, error } = useBakedRun(provider, CONTRACT);
   const roles = run
     ? roleOrder(CONTRACT).flatMap((name) => {
@@ -55,7 +85,6 @@ export const MatchStage = ({ go }: PageProps) => {
       <div className="shell-wide stage-inner">
         <header className="stage-head">
           <div>
-            <p className="stage-kicker">Готовый прогон · без загрузки и настройки</p>
             <h1 className="stage-title" id="demo-title">
               Из чужого OpenAPI — <span className="side-contract">готовый сервис</span> под ваш
               контракт
@@ -68,7 +97,7 @@ export const MatchStage = ({ go }: PageProps) => {
           <div className="stage-cta">
             <button type="button" className="btn btn-primary" onClick={() => go("/lab")}>
               Разобрать свой документ
-              <span aria-hidden="true">→</span>
+              <ArrowRight size={14} />
             </button>
             <span>OpenAPI в YAML или JSON</span>
           </div>
@@ -76,18 +105,24 @@ export const MatchStage = ({ go }: PageProps) => {
 
         <div className="stage-picker" aria-label="Демо-документ">
           <span className="stage-picker-label">Показать на примере</span>
-          <div className="stage-picker-options">
-            {providers.map((item) => (
-              <button
-                type="button"
-                className="stage-pick"
-                key={item}
-                aria-pressed={provider === item}
-                onClick={() => setProvider(item)}
-              >
-                {displayName(item)}
-              </button>
-            ))}
+          <div className="stage-picker-options" ref={setPickHost}>
+            <SlidingPlate host={pickHost} activeKey={provider} className="stage-pick-slider" />
+            {providers.map((item) => {
+              const picked = provider === item;
+
+              return (
+                <button
+                  type="button"
+                  className="stage-pick"
+                  key={item}
+                  aria-pressed={picked}
+                  data-plate={picked}
+                  onClick={() => setProvider(item)}
+                >
+                  <span className="stage-pick-text">{displayName(item)}</span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -149,7 +184,7 @@ export const MatchStage = ({ go }: PageProps) => {
                         <code className="side-provider">
                           {isBound(role) ? role.operation : "не найдено"}
                         </code>
-                        <span aria-hidden="true">→</span>
+                        <ArrowRight size={14} />
                         <code className="side-contract">{name}</code>
                       </span>
                       <span className="stage-decision-meta">
@@ -187,19 +222,14 @@ export const MatchStage = ({ go }: PageProps) => {
                     {mapped.length} из {roles.length} ролей реализованы автоматически
                   </span>
                 </div>
-                <div className="stage-code-preview">
-                  <div className="stage-code-head">
-                    <span className="mono">{fileName}</span>
-                    <span>Ruby</span>
-                  </div>
-                  <pre>
-                    <code>{preview}</code>
-                  </pre>
-                </div>
+                <StagePreview file={fileName} code={preview} />
                 {run.warnings.length > 0 ? (
                   <p className="stage-review">
-                    <span>Нужна проверка человека</span>
-                    {run.warnings[0]}
+                    <span className="stage-review-tag">
+                      <span className="stage-review-mark" aria-hidden="true" />
+                      Нужна проверка человека
+                    </span>
+                    <span className="stage-review-text">{run.warnings[0]}</span>
                   </p>
                 ) : null}
               </div>
@@ -211,9 +241,9 @@ export const MatchStage = ({ go }: PageProps) => {
 
         <p className="stage-footnote">
           <span className="side-provider">Документ провайдера</span>
-          <span aria-hidden="true">→</span>
+          <ArrowRight size={14} />
           <span>объяснимые правила</span>
-          <span aria-hidden="true">→</span>
+          <ArrowRight size={14} />
           <span className="side-contract">контракт вашего приложения</span>
         </p>
       </div>

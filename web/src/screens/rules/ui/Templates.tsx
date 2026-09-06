@@ -48,7 +48,7 @@ export const Templates = () => {
 
   return (
     <div className="tpl">
-      <div className="scroll-x tpl-tabs-wrap">
+      <div className="tpl-tabs-wrap">
         <SwitchTabs
           label="Шаблон"
           group="rules-templates"

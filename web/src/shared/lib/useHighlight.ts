@@ -31,7 +31,7 @@ const LANG_SOURCE: Record<string, () => Promise<unknown>> = {
 
 let highlighter: ReturnType<typeof createHighlighterCore> | undefined;
 
-const loaded = new Set<string>();
+const loading = new Map<string, Promise<void>>();
 
 const shiki = async (lang: string) => {
   highlighter ??= createHighlighterCore({
@@ -43,9 +43,13 @@ const shiki = async (lang: string) => {
   const core = await highlighter;
   const source = LANG_SOURCE[lang];
 
-  if (source && !loaded.has(lang)) {
-    loaded.add(lang);
-    await core.loadLanguage((await source()) as never);
+  if (source) {
+    let pending = loading.get(lang);
+    if (!pending) {
+      pending = source().then((module) => core.loadLanguage(module as never));
+      loading.set(lang, pending);
+    }
+    await pending;
   }
 
   return core;

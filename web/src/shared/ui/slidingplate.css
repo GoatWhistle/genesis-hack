@@ -1,0 +1,17 @@
+@layer components {
+  .sliding-plate {
+    position: absolute;
+    left: 0;
+    top: 0;
+    z-index: 1;
+    pointer-events: none;
+    transition:
+      transform 280ms var(--ease-out-quart),
+      width 280ms var(--ease-out-quart),
+      height 280ms var(--ease-out-quart);
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .sliding-plate { transition: none; }
+  }
+}

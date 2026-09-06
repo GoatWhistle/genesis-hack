@@ -1,5 +1,5 @@
-import { LayoutGroup, motion } from "motion/react";
-import { useSwapTransition } from "~/shared/lib/motion";
+import { useState } from "react";
+import { SlidingPlate } from "./SlidingPlate";
 import "./switchtabs.css";
 
 export interface SwitchOption {
@@ -23,16 +23,15 @@ export const SwitchTabs = ({
   options,
   current,
   onPick,
-  group,
   role = "tablist",
   mono = true
 }: SwitchTabsProps) => {
-  const transition = useSwapTransition();
+  const [host, setHost] = useState<HTMLDivElement | null>(null);
   const tab = role === "tablist";
 
   return (
-    <div className="switch switch-sliding" role={role} aria-label={label}>
-      <LayoutGroup id={`switch-${group}`}>
+    <div className="switch switch-sliding" role={role} aria-label={label} ref={setHost}>
+      <SlidingPlate host={host} activeKey={current} className="switch-slider" />
       {options.map((option) => {
         const active = option.id === current;
 
@@ -46,21 +45,13 @@ export const SwitchTabs = ({
             aria-pressed={tab ? undefined : active}
             title={option.title}
             data-active={active}
+            data-plate={active}
             onClick={() => onPick(option.id)}
           >
-            {active ? (
-              <motion.span
-                layoutId={`switch-${group}`}
-                className="switch-slider"
-                transition={transition}
-                aria-hidden="true"
-              />
-            ) : null}
             <span className="switch-text">{option.label}</span>
           </button>
         );
       })}
-      </LayoutGroup>
     </div>
   );
 };

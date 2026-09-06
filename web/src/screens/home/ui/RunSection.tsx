@@ -1,4 +1,5 @@
 import { useState } from "react";
+import { CopyIcon } from "~/shared/design/CopyIcon";
 
 const WAYS = [
   {
@@ -24,8 +25,14 @@ const CopyButton = ({ text }: { text: string }) => {
   };
 
   return (
-    <button type="button" className="btn btn-ghost" onClick={copy} aria-label="Скопировать команду">
-      {done ? "Скопировано" : "Копировать"}
+    <button
+      type="button"
+      className="btn btn-ghost btn-icon"
+      onClick={copy}
+      aria-label={done ? "Скопировано" : "Скопировать команду"}
+      title={done ? "Скопировано" : "Скопировать команду"}
+    >
+      <CopyIcon size={18} done={done} />
     </button>
   );
 };

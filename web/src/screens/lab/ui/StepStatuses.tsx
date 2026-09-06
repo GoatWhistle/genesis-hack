@@ -1,5 +1,6 @@
 import type { Report } from "~/shared/api/types";
 import { useSourceHandlers } from "./useProvenance";
+import { ArrowRight } from "~/shared/design/ArrowRight";
 
 const Pair = ({ kind, from, to }: { kind: string; from: string; to: string }) => {
   const trace = useSourceHandlers(`${kind}:${from}`);
@@ -10,8 +11,8 @@ const Pair = ({ kind, from, to }: { kind: string; from: string; to: string }) =>
       {...trace.props}
     >
       <span className="lab-dict-from">{from}</span>
-      <span className="lab-dict-link" aria-hidden="true">
-        →
+      <span className="lab-dict-link">
+        <ArrowRight size={13} />
       </span>
       <span className="lab-dict-to">{to}</span>
     </div>

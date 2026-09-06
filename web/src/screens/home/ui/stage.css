@@ -19,15 +19,6 @@
     .stage-head { grid-template-columns: minmax(0, 1fr) auto; gap: var(--space-5); }
   }
 
-  .stage-kicker {
-    margin: 0 0 var(--space-2);
-    color: var(--color-ink-soft);
-    font-size: var(--text-step--1);
-    font-weight: 600;
-    letter-spacing: 0.04em;
-    text-transform: uppercase;
-  }
-
   .stage-title {
     margin: 0;
     max-width: 22ch;
@@ -55,6 +46,7 @@
 
   .stage-picker-label { color: var(--color-ink-soft); font-size: var(--text-step--1); }
   .stage-picker-options {
+    position: relative;
     display: inline-flex;
     flex-wrap: wrap;
     gap: 1px;
@@ -66,6 +58,7 @@
   }
 
   .stage-pick {
+    position: relative;
     min-height: 2.5rem;
     padding-inline: var(--space-2);
     border: 0;
@@ -78,7 +71,12 @@
   }
 
   .stage-pick:hover { color: var(--color-ink); background: var(--color-surface); }
-  .stage-pick[aria-pressed="true"] { color: var(--color-paper); background: var(--color-ink); }
+
+  .stage-pick[aria-pressed="true"] { color: var(--color-paper); }
+
+  .stage-pick-slider { background: var(--color-ink); }
+
+  .stage-pick-text { position: relative; z-index: 2; }
 
   .stage-grid {
     display: grid;
@@ -103,10 +101,11 @@
       place-items: center;
       border: 1px solid var(--color-ink);
       border-radius: 999px;
-      background: var(--color-paper);
-      content: "→";
-      font-size: 0.75rem;
-      font-weight: 700;
+      background-color: var(--color-paper);
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='14' viewBox='0 0 16 16' fill='none' stroke='%231a1a1a' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M2.5 8h10'/%3E%3Cpath d='M8.75 4.25 12.5 8l-3.75 3.75'/%3E%3C/svg%3E");
+      background-repeat: no-repeat;
+      background-position: center;
+      content: "";
     }
   }
 
@@ -216,6 +215,7 @@
 
   .stage-code-head {
     display: flex;
+    align-items: center;
     justify-content: space-between;
     gap: var(--space-2);
     padding: var(--space-1) var(--space-2);
@@ -235,17 +235,42 @@
     white-space: pre-wrap;
   }
 
+  .stage-code-body pre {
+    background: transparent !important;
+    font-family: var(--font-mono);
+  }
+
   .stage-review {
     display: grid;
-    gap: 2px;
+    gap: 4px;
     margin: auto 0 0;
-    padding: var(--space-1) var(--space-2);
-    border-left: 2px solid var(--color-provider);
+    padding: var(--space-2);
+    border: 1px solid var(--color-provider);
+    border-radius: var(--radius-control);
     background: var(--color-provider-soft);
     font-size: 0.6875rem;
   }
 
-  .stage-review span { color: var(--color-provider); font-weight: 700; }
+  .stage-review-tag {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--color-provider);
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    text-transform: uppercase;
+    font-size: 0.625rem;
+  }
+
+  .stage-review-mark {
+    inline-size: 5px;
+    block-size: 5px;
+    border-radius: 50%;
+    background: var(--color-provider);
+    flex: none;
+  }
+
+  .stage-review-text { color: var(--color-ink); }
   .stage-loading { margin: auto; color: var(--color-ink-faint); }
 
   .stage-footnote {
@@ -268,4 +293,6 @@
     .stage-picker { align-items: stretch; flex-direction: column; }
     .stage-picker-options { display: grid; grid-template-columns: repeat(2, 1fr); }
   }
+
+  .arrow-right { display: block; flex: none; }
 }

@@ -1,7 +1,8 @@
 import { Suspense, lazy } from "react";
+import { AnimatePresence, motion } from "motion/react";
+import { enterVariants, useSwapTransition } from "~/shared/lib/motion";
 import { useRoute } from "./useRoute";
 import { SiteHeader } from "./SiteHeader";
-import { SiteFooter } from "./SiteFooter";
 
 const Home = lazy(() => import("~/screens/home/ui/HomePage"));
 const Lab = lazy(() => import("~/screens/lab/ui/LabPage"));
@@ -19,6 +20,7 @@ const LAZY_PAGES = {
 
 export const App = () => {
   const { path, go } = useRoute();
+  const transition = useSwapTransition();
   const Page = LAZY_PAGES[path];
 
   return (
@@ -28,17 +30,28 @@ export const App = () => {
       </a>
       <SiteHeader path={path} go={go} />
       <main id="main">
-        <Suspense
-          fallback={
-            <div className="shell-wide band label" role="status">
-              Загружаем…
-            </div>
-          }
-        >
-          <Page go={go} />
-        </Suspense>
+        <AnimatePresence mode="wait" initial={false}>
+          <motion.div
+            key={path}
+            variants={enterVariants}
+            initial="hidden"
+            animate="shown"
+            exit="gone"
+            transition={transition}
+            onAnimationStart={() => window.scrollTo({ top: 0 })}
+          >
+            <Suspense
+              fallback={
+                <div className="shell-wide band label" role="status">
+                  Загружаем…
+                </div>
+              }
+            >
+              <Page go={go} />
+            </Suspense>
+          </motion.div>
+        </AnimatePresence>
       </main>
-      <SiteFooter go={go} />
     </>
   );
 };
