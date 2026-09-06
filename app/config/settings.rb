@@ -25,20 +25,22 @@ module Config
       #                       к провайдеру
       TRAITS = %i[calls_provider creates_operation receives_callback].freeze
 
-      attr_reader :name, :title, :traits, :rules, :veto, :threshold
+      attr_reader :name, :title, :traits, :rules, :veto, :signals, :threshold
 
       # @param name [String, Symbol] имя роли, оно же имя метода контракта
       # @param title [String] название роли по-русски, для отчёта и предупреждений
       # @param traits [Array<Symbol>] признаки роли из TRAITS
       # @param rules [Array<Config::Rule>] правила, дающие очки
       # @param veto [Array<Config::Rule>] правила, снимающие кандидата целиком
+      # @param signals [Array<Config::Signal>] структурные признаки: форма запроса и ответа
       # @param threshold [Integer] минимальный счёт, ниже которого роль не назначается
-      def initialize(name:, title:, traits:, rules:, veto:, threshold:)
+      def initialize(name:, title:, traits:, rules:, veto:, threshold:, signals: [])
         @name = name.to_sym
         @title = title
         @traits = traits
         @rules = rules
         @veto = veto
+        @signals = signals
         @threshold = threshold
       end
 
@@ -46,14 +48,30 @@ module Config
       # @return [Boolean]
       def trait?(trait) = traits.include?(trait)
 
-      # Счёт кандидата и список сработавших правил; nil при срабатывании veto.
+      # Счёт кандидата, список сработавшего и поправка структурных признаков.
+      # Порог сравнивается со счётом слов: слова говорят, о чём операция, а
+      # структура схем лишь уточняет порядок кандидатов и сама роли не даёт.
       # @param candidate [Models::ApiOperation]
-      # @return [Array(Integer, Array<Config::Rule>), nil] счёт и правила; nil при veto
+      # @return [Array(Integer, Array<#weight>, Integer), nil] счёт слов, сработавшее
+      #   и поправка признаков; nil при veto
       def score(candidate)
         return nil if veto.any? { |rule| rule.matches?(candidate) }
 
+        fired = fired_signals(candidate)
+        return nil if fired.nil?
+
         matched = rules.select { |rule| rule.matches?(candidate) }
-        [matched.sum(&:weight), matched]
+        [matched.sum(&:weight), matched + fired, fired.sum(&:weight)]
+      end
+
+      private
+
+      # @param candidate [Models::ApiOperation]
+      # @return [Array<Config::Signal>, nil] сработавшие признаки; nil, если хоть один
+      #   из них снимает кандидата целиком
+      def fired_signals(candidate)
+        fired = signals.select { |signal| signal.matches?(candidate) }
+        fired.any?(&:veto?) ? nil : fired
       end
     end
 

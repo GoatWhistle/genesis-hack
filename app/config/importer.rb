@@ -110,6 +110,7 @@ module Config
         name: name, title: body.fetch(:title), traits: traits(name, body),
         rules: rules(archetype[:rules], body[:rules]),
         veto: rules(archetype[:veto], body[:veto]),
+        signals: signals(archetype[:signals], body[:signals]),
         threshold: thresholds.fetch(name, thresholds.fetch(:default))
       )
     end
@@ -131,6 +132,12 @@ module Config
     # @return [Array<Rule>]
     def rules(*groups)
       groups.flatten.compact.map { |entry| Rule.new(**entry) }
+    end
+
+    # @param groups [Array<Array<Hash>, nil>] структурные признаки архетипа и роли
+    # @return [Array<Signal>]
+    def signals(*groups)
+      groups.flatten.compact.map { |entry| Signal.new(**entry) }
     end
 
     # @param name [Symbol] имя роли
