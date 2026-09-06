@@ -69,7 +69,7 @@ bundle install
 ## Проверка установки
 
 ```
-bundle exec rspec      # 262 примера: разбор, классификация, печать, HTTP, сгенерированный сервис
+bundle exec rspec      # 404 примера: разбор, классификация, печать, HTTP, сгенерированный сервис
 bundle exec rubocop    # линтер
 ```
 
@@ -89,9 +89,9 @@ bundle exec bin/rsocket doctor
 ```
 контракт: space_payments — контракт Space Payments (Provider::BaseService)
 правила:  локальный каталог <репозиторий>/app/config/rules
-  create_request     порог 13, обязательна,    правил: 8, calls_provider creates_operation
-  fetch_status       порог 14, обязательна,    правил: 8, calls_provider
-  process_callback   порог  8, необязательна,  правил: 4, receives_callback
+  create_request     порог 13, обязательна,    правил: 11, calls_provider creates_operation
+  fetch_status       порог 14, обязательна,    правил: 10, calls_provider
+  process_callback   порог  8, необязательна,  правил: 5, receives_callback
   cancel_request     порог 14, необязательна,  правил: 8, calls_provider
 ```
 
@@ -175,6 +175,169 @@ done
 Конструкции, отсутствующие в описании, не достраиваются: в `nordbank` метод `authorize`
 печатается с TODO и пояснением, в `swiftpay` `process_callback` возвращает отказ
 `callback_not_supported`. Все такие случаи попадают в строки с `!` и в `mapping.yml`.
+
+## Что инструмент вычитывает из описания
+
+| Что | Откуда берётся | Куда попадает |
+| --- | --- | --- |
+| методы API | `paths`, `operationId`, `summary`, `tags` | роли контракта, таблица методов в `INTEGRATION.md` |
+| параметры запроса | схема `requestBody`, `parameters` пути и строки запроса | тело запроса и его сборка в сервисе |
+| поля ответа | схемы ответов `2xx`, включая конверты вида `data.*` | чтение идентификатора операции и состояния |
+| авторизация | `securitySchemes`, `security` | заголовок или строка запроса, переменные окружения, раздел «Авторизация» |
+| состояния операций | `enum` полей состояния, примеры ответов | `STATUS_MAP` и таблица маппинга статусов |
+| ошибки | ответы `4xx`/`5xx` и их схемы | `ERROR_MAP`, `ERROR_ACTIONS`, таблица обработки ошибок |
+| уведомления | `webhooks`, операции приёма callback, заголовок подписи | `process_callback`, `EVENT_MAP`, проверка подписи |
+| ограничения | `minimum`, `maximum`, `enum`, `required`, форматы и единицы суммы | предпроверки в `check_conditions` |
+| идемпотентность | заголовки вида `Idempotency-Key` | заголовки исходящего запроса |
+
+Всё, что не удалось вывести однозначно, печатается строкой с `!` и записывается в
+`mapping.yml` — решение не подставляется молча.
+
+## Что получается на выходе
+
+Фрагменты настоящего результата сборки `novapay`.
+
+Карты статусов и ошибок собраны из описания, а не написаны руками:
+
+```ruby
+STATUS_MAP = {
+  "cancelled" => "rejected", "completed" => "approved", "failed" => "rejected",
+  "pending" => "in_progress", "processing" => "in_progress"
+}.freeze
+
+ERROR_MAP = {
+  400 => %i[validation_error bad_request], 401 => %i[invalid_credentials unauthorized],
+  402 => %i[insufficient_balance payment_required], 429 => %i[rate_limit too_many_requests],
+  500 => %i[internal_error internal_server_error],
+  default: %i[unknown_error bad_gateway]
+}.freeze
+
+# Что делать с ошибкой: reject — операция не пройдёт, retry* — можно повторить.
+ERROR_ACTIONS = { "rate_limit" => "retry_backoff", "insufficient_balance" => "retry_later",
+                  "invalid_credentials" => "alert", "validation_error" => "reject" }.freeze
+
+# Источник: minimum у поля amount в схеме запроса.
+MIN_AMOUNT = 1000
+# Источник: enum поля currency в схеме запроса.
+ALLOWED_CURRENCIES = %w[RUB].freeze
+```
+
+Методы контракта. Над каждым — откуда взялась роль:
+
+```ruby
+# Создание выплаты: POST /payouts (create_payout).
+# роль назначена: счёт 22 при пороге 13 по полям method_name, path, http_method,
+# summary, структура. Разбор — в mapping.yml.
+def create_request(operation, request_method = "create")
+  response = request(:post, "/payouts", body: create_request_body(operation),
+                     headers: { "Idempotency-Key" => operation.id })
+  return handle_error(response) unless response.success?
+
+  identifier = dig_body(response.body, "id")
+  return failure(:bad_gateway, "provider.missing_operation_id") unless valid_identifier?(identifier)
+
+  operation.provider_operation_id = identifier
+  success
+rescue MissingParameter
+  failure(:unprocessable_entity, "provider.missing_parameter")
+end
+
+def process_callback(payload)
+  return failure(:unauthorized, "provider.invalid_signature") unless valid_signature?(payload)
+
+  operation_id = dig_body(payload, "payout_id")
+
+  case callback_status(payload)
+  when "approved" then approve_operation(operation_id)
+  when "rejected" then reject_operation(operation_id, callback_error(payload))
+  when "in_progress" then success
+  else failure(:unprocessable_entity, "unknown_event")
+  end
+end
+
+def check_conditions(operation, request_method)
+  result = super
+  return result if result.failed?
+
+  return failure(:unprocessable_entity, "amount_too_low") if operation.amount < MIN_AMOUNT
+  return failure(:unprocessable_entity, "unsupported_currency") unless ALLOWED_CURRENCIES.include?(operation.currency.to_s)
+
+  success
+end
+```
+
+Адрес, ключи и таймауты вынесены в переменные окружения: `NOVAPAY_BASE_URL`,
+`NOVAPAY_API_KEY`, `NOVAPAY_CALLBACK_SECRET`.
+
+`INTEGRATION.md` — настройка, авторизация, методы, статусы, ошибки:
+
+```
+## Авторизация
+- Тип: **api_key** (схема `ApiKeyAuth` из описания)
+- Куда: заголовок `X-API-Key`
+
+## Методы
+| Метод контракта  | Endpoint                        | Назначение        | Заголовки       |
+| create_request   | POST /payouts                   | создание выплаты  | Idempotency-Key |
+| fetch_status     | GET /payouts/{payout_id}        | статус-запрос     |                 |
+| process_callback | POST /webhooks/payout           | обработка webhook |                 |
+
+## Маппинг статусов
+| pending | in_progress |  | completed | approved |  | failed | rejected |
+
+Состояние, отсутствующее в таблице, интерпретируется как `in_progress`: закрытие
+операции по нераспознанному значению приводит к потере данных, повторный запрос — нет.
+```
+
+`fixtures.json` — примеры запроса, ответов по кодам и входящих уведомлений:
+
+```json
+{
+  "create_request": {
+    "endpoint": "POST /payouts",
+    "request": { "amount": 1500000, "currency": "RUB", "external_id": "op_abc123",
+                 "recipient": { "type": "sbp", "phone": "79001234567", "bank_code": "044525225" } },
+    "responses": {
+      "201": { "id": "np_7f3a9b2c", "status": "pending" },
+      "402": { "error": { "code": "insufficient_balance" } }
+    },
+    "response_headers": { "429": { "retry-after": 1 } }
+  }
+}
+```
+
+## Ошибки разбора и сборки
+
+Инструмент не падает трассировкой: причина печатается строкой, код возврата ненулевой.
+
+```
+не собралось: описание API не найдено: /путь/nope.yaml
+не собралось: не разобрать YAML: did not find expected ',' or ']' at line 1 column 6
+не собралось: описание не OpenAPI/Swagger: нет ни paths, ни webhooks
+```
+
+Если описание разобрано, но обязательной роли нет, сборка прерывается с указанием,
+каких ролей не хватило. Необязательная роль без кандидата печатается как `заглушка`,
+и соответствующий метод сгенерированного сервиса возвращает отказ. В HTTP-режиме те же
+случаи возвращаются JSON-ом: **400** — некорректный запрос, **422** — описание разобрано,
+но не пригодно для сборки.
+
+## Проверка на чужих описаниях
+
+Правила составлялись не по четырём примерам из `examples/`. Замер идёт на 71 стороннем
+описании настоящих провайдеров — Stripe, Adyen, PayPal, Plaid, Wise, Open Banking UK,
+Modern Treasury и других. Список источников и скрипт загрузки лежат в `bench/`
+(в репозиторий не входят: часть описаний без лицензии, вместе 17 МБ).
+
+| корпус | описаний | прочитано | верных назначений ролей |
+| --- | --- | --- | --- |
+| `bench/truth.yml` | 47 | 47 | 163 из 188 |
+| `bench/truth-new.yml` | 24 | 20 | 51 из 80 |
+
+Верным считается и отказ: если провайдер не описывает отмену или webhook, правильный
+ответ — оставить роль пустой, и это засчитывается. Четыре описания второго корпуса
+внутри замера не читаются — известный дефект замерного скрипта, сами файлы инструмент
+разбирает.
 
 ## Распределение ролей по операциям
 
@@ -426,7 +589,7 @@ docker compose run --rm rsocket \
 каждая строка собранного сервиса связана с решением, из которого выросла. Своё
 описание можно подсунуть прямо на сайте — оно уходит в настоящий `POST /build`.
 
-Адрес: **ЗАПОЛНИТЬ ПОСЛЕ ВЫКЛАДКИ**
+Адрес: **https://genesis.goatwhistle.ru**
 
 Пять страниц: главная с полным проходом данных, разбор описания, правила с
 песочницей, сравнение четырёх провайдеров и документация. Без сервера сайт тоже
