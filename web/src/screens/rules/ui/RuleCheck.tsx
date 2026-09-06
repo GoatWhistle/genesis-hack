@@ -2,6 +2,8 @@ import { useMemo, useState } from "react";
 import { archetypeTitles, fieldTitles } from "~/shared/model/base";
 import { candidateOf, matchCandidate } from "~/shared/model/match";
 import type { ArchetypeScore } from "~/shared/model/match";
+import { SlidingPlate } from "~/shared/ui/SlidingPlate";
+import "~/shared/ui/switchtabs.css";
 
 const EXAMPLES = [
   "createPayout",
@@ -70,6 +72,7 @@ const ArchetypeCard = ({ score, won }: { score: ArchetypeScore; won: boolean }) 
 
 export const RuleCheck = () => {
   const [value, setValue] = useState("cancelPayout");
+  const [examples, setExamples] = useState<HTMLDivElement | null>(null);
   const result = useMemo(() => matchCandidate(candidateOf(value.trim() || "operation")), [value]);
 
   return (
@@ -87,7 +90,17 @@ export const RuleCheck = () => {
           onChange={(event) => setValue(event.target.value)}
           placeholder="cancelPayout"
         />
-        <div className="rc-examples" role="group" aria-label="Готовые примеры">
+        <div
+          className="rc-examples switch-sliding"
+          role="group"
+          aria-label="Готовые примеры"
+          ref={setExamples}
+        >
+          <SlidingPlate
+            host={examples}
+            activeKey={EXAMPLES.includes(value) ? value : undefined}
+            className="switch-slider rc-example-slider"
+          />
           {EXAMPLES.map((example) => (
             <button
               key={example}
@@ -95,9 +108,10 @@ export const RuleCheck = () => {
               className="switch-item mono rc-example"
               aria-pressed={example === value}
               data-active={example === value}
+              data-plate={example === value}
               onClick={() => setValue(example)}
             >
-              {example}
+              <span className="switch-text">{example}</span>
             </button>
           ))}
         </div>

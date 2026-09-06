@@ -1,5 +1,7 @@
 import { useState } from "react";
 import { useBakedRun } from "~/shared/api/useRun";
+import { SlidingPlate } from "~/shared/ui/SlidingPlate";
+import { useHighlight } from "~/shared/lib/useHighlight";
 
 const PAIRS: { role: string; service: string; client: string; about: string }[] = [
   {
@@ -42,8 +44,33 @@ const methodBody = (file: string, name: string): string => {
     .join("\n");
 };
 
+interface PaneProps {
+  file: string;
+  hint: string;
+  code: string;
+}
+
+const TwinPane = ({ file, hint, code }: PaneProps) => {
+  const html = useHighlight(code, "ruby");
+
+  return (
+    <div className="twin-pane">
+      <p className="twin-file mono side-contract">{file}</p>
+      <p className="twin-hint">{hint}</p>
+      <div className="scroll-x" tabIndex={0} role="region" aria-label="Код метода, прокрутка вбок">
+        {html ? (
+          <div className="twin-pre" dangerouslySetInnerHTML={{ __html: html }} />
+        ) : (
+          <pre className="twin-pre">{code}</pre>
+        )}
+      </div>
+    </div>
+  );
+};
+
 export const TwinSection = () => {
   const [active, setActive] = useState(0);
+  const [pickHost, setPickHost] = useState<HTMLDivElement | null>(null);
   const service = useBakedRun("novapay", "space_payments");
   const client = useBakedRun("novapay", "plain_client");
 
@@ -60,38 +87,40 @@ export const TwinSection = () => {
           Ни одна строка про NovaPay не поменялась. Поменялся профиль контракта — и вместе с ним
           имена методов и то, чем сообщается отказ.
         </p>
-        <div className="twin-picker" role="group" aria-label="Роль контракта">
-          {PAIRS.map((item, index) => (
-            <button
-              type="button"
-              className="twin-pick"
-              key={item.role}
-              aria-pressed={index === active}
-              data-active={index === active}
-              onClick={() => setActive(index)}
-            >
-              <span className="twin-pick-role">{item.role}</span>
-              <span className="twin-pick-about">{item.about}</span>
-            </button>
-          ))}
+        <div className="twin-picker" role="group" aria-label="Роль контракта" ref={setPickHost}>
+          <SlidingPlate host={pickHost} activeKey={String(active)} className="twin-pick-slider" />
+          {PAIRS.map((item, index) => {
+            const picked = index === active;
+
+            return (
+              <button
+                type="button"
+                className="twin-pick"
+                key={item.role}
+                aria-pressed={picked}
+                data-active={picked}
+                data-plate={picked}
+                onClick={() => setActive(index)}
+              >
+                <span className="twin-pick-role">{item.role}</span>
+                <span className="twin-pick-about">{item.about}</span>
+              </button>
+            );
+          })}
         </div>
       </div>
 
       <div className="twin-code">
-        <div className="twin-pane">
-          <p className="twin-file mono side-contract">novapay_service.rb</p>
-          <p className="twin-hint">отказ возвращается значением</p>
-          <div className="scroll-x" tabIndex={0} role="region" aria-label="Код метода, прокрутка вбок">
-            <pre className="twin-pre">{methodBody(service.run.files["novapay_service.rb"] ?? "", pair.service)}</pre>
-          </div>
-        </div>
-        <div className="twin-pane">
-          <p className="twin-file mono side-contract">novapay_client.rb</p>
-          <p className="twin-hint">отказ бросается исключением</p>
-          <div className="scroll-x" tabIndex={0} role="region" aria-label="Код метода, прокрутка вбок">
-            <pre className="twin-pre">{methodBody(client.run.files["novapay_client.rb"] ?? "", pair.client)}</pre>
-          </div>
-        </div>
+        <TwinPane
+          file="novapay_service.rb"
+          hint="отказ возвращается значением"
+          code={methodBody(service.run.files["novapay_service.rb"] ?? "", pair.service)}
+        />
+        <TwinPane
+          file="novapay_client.rb"
+          hint="отказ бросается исключением"
+          code={methodBody(client.run.files["novapay_client.rb"] ?? "", pair.client)}
+        />
       </div>
     </section>
   );

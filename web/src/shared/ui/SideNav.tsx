@@ -1,5 +1,5 @@
-import { LayoutGroup, motion } from "motion/react";
-import { useSlideTransition } from "~/shared/lib/motion";
+import { useState } from "react";
+import { SlidingPlate } from "./SlidingPlate";
 import "./sidenav.css";
 
 export interface SideNavItem {
@@ -15,12 +15,12 @@ interface SideNavProps {
 }
 
 export const SideNav = ({ label, items, current, onPick }: SideNavProps) => {
-  const transition = useSlideTransition();
+  const [host, setHost] = useState<HTMLUListElement | null>(null);
 
   return (
     <nav className="side-nav" aria-label={label}>
-      <LayoutGroup id={`side-nav-${label}`}>
-      <ul>
+      <ul ref={setHost}>
+        <SlidingPlate host={host} activeKey={current} className="side-nav-edge" />
         {items.map((item) => {
           const active = item.id === current;
 
@@ -30,24 +30,16 @@ export const SideNav = ({ label, items, current, onPick }: SideNavProps) => {
                 type="button"
                 className="side-nav-item"
                 data-active={active}
+                data-plate={active}
                 aria-current={active ? "true" : undefined}
                 onClick={() => onPick(item.id)}
               >
-                {active ? (
-                  <motion.span
-                    layoutId={`side-nav-${label}`}
-                    className="side-nav-edge"
-                    transition={transition}
-                    aria-hidden="true"
-                  />
-                ) : null}
                 <span className="side-nav-text">{item.title}</span>
               </button>
             </li>
           );
         })}
       </ul>
-      </LayoutGroup>
     </nav>
   );
 };

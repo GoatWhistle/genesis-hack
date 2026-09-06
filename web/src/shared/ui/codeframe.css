@@ -160,4 +160,7 @@
     white-space: pre;
     min-inline-size: 0;
   }
+
+  .code-frame-lang { display: inline-flex; align-items: center; }
+  .ruby-mark { display: block; }
 }

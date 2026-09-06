@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import type { ContractProfile } from "~/shared/api/types";
+import { SwitchTabs } from "~/shared/ui/SwitchTabs";
 
 interface LabLiveProps {
   provider: string;
@@ -66,20 +67,18 @@ export const LabLive = ({
         <div className="lab-live-field">
           <span className="label">Контракт</span>
           <div className="lab-contract-row">
-            <div className="switch" role="group" aria-label="Контракт">
-              {profiles.map((profile) => (
-                <button
-                  key={profile.name}
-                  type="button"
-                  className="switch-item mono"
-                  aria-pressed={profile.name === contract}
-                  title={profile.title}
-                  onClick={() => onContract(profile.name)}
-                >
-                  {profile.name}
-                </button>
-              ))}
-            </div>
+            <SwitchTabs
+              label="Контракт"
+              group="lab-contract"
+              role="group"
+              options={profiles.map((profile) => ({
+                id: profile.name,
+                label: profile.name,
+                title: profile.title
+              }))}
+              current={contract}
+              onPick={onContract}
+            />
             <button type="button" className="btn btn-ghost" onClick={onUploadContract}>
               + Загрузить контракт
             </button>

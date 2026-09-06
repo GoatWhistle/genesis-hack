@@ -1,5 +1,7 @@
 import { useId, useState } from "react";
 import { candidateOf, matchCandidate } from "~/shared/model/match";
+import { SlidingPlate } from "~/shared/ui/SlidingPlate";
+import "~/shared/ui/switchtabs.css";
 
 const SAMPLES = ["createPayout", "cancelPayout", "payoutWebhook", "getTransferInfo"];
 
@@ -19,6 +21,7 @@ const ARCHETYPE_TITLES: Record<string, string> = {
 
 export const VetoBench = () => {
   const [name, setName] = useState("cancelPayout");
+  const [samples, setSamples] = useState<HTMLDivElement | null>(null);
   const fieldId = useId();
   const empty = name.trim() === "";
   const candidate = candidateOf(name);
@@ -55,19 +58,34 @@ export const VetoBench = () => {
             />
           </label>
 
-          <div className="bench-samples" role="group" aria-label="Готовые примеры">
-            {SAMPLES.map((sample) => (
-              <button
-                type="button"
-                className="switch-item bench-sample"
-                key={sample}
-                aria-pressed={sample === name}
-                data-active={sample === name}
-                onClick={() => setName(sample)}
-              >
-                {sample}
-              </button>
-            ))}
+          <div
+            className="bench-samples switch-sliding"
+            role="group"
+            aria-label="Готовые примеры"
+            ref={setSamples}
+          >
+            <SlidingPlate
+              host={samples}
+              activeKey={SAMPLES.includes(name) ? name : undefined}
+              className="switch-slider bench-slider"
+            />
+            {SAMPLES.map((sample) => {
+              const picked = sample === name;
+
+              return (
+                <button
+                  type="button"
+                  className="switch-item bench-sample"
+                  key={sample}
+                  aria-pressed={picked}
+                  data-active={picked}
+                  data-plate={picked}
+                  onClick={() => setName(sample)}
+                >
+                  <span className="switch-text">{sample}</span>
+                </button>
+              );
+            })}
           </div>
 
           <p className="bench-guess">

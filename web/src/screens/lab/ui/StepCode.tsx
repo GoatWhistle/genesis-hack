@@ -4,6 +4,7 @@ import { langOf, useHighlight } from "~/shared/lib/useHighlight";
 import { enterVariants, useSwapTransition } from "~/shared/lib/motion";
 import { DownloadRun } from "~/shared/ui/DownloadRun";
 import { CodeFrame } from "~/shared/ui/CodeFrame";
+import { CopyIcon } from "~/shared/design/CopyIcon";
 import { SwitchTabs } from "~/shared/ui/SwitchTabs";
 import { TracedCode } from "./TracedCode";
 import { useProvenanceLink } from "./useProvenance";
@@ -45,12 +46,14 @@ const CopyButton = ({ code }: { code: string }) => {
   return (
     <button
       type="button"
-      className="btn btn-ghost lab-code-btn"
+      className="btn btn-ghost btn-icon lab-code-btn"
+      aria-label={done ? "Скопировано" : "Скопировать код"}
+      title={done ? "Скопировано" : "Скопировать код"}
       onClick={() => {
         void navigator.clipboard.writeText(code).then(() => setDone(true));
       }}
     >
-      {done ? "Скопировано" : "Скопировать"}
+      <CopyIcon size={18} done={done} />
     </button>
   );
 };

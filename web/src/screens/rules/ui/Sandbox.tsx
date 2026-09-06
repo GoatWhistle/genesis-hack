@@ -1,6 +1,7 @@
 import { useState } from "react";
 import { archetypeTitles, fieldTitles } from "~/shared/model/base";
 import { assign, cloneArchetypes, sandboxProviders, thresholds, withPatchedRule } from "../model/sandboxModel";
+import { SwitchTabs } from "~/shared/ui/SwitchTabs";
 
 const ORIGINAL = cloneArchetypes();
 const BASELINE = assign(ORIGINAL);
@@ -45,20 +46,14 @@ export const Sandbox = () => {
         <div className="sbx-control">
           <span className="label">архетип</span>
           <div className="scroll-x">
-            <div className="switch" role="group" aria-label="Архетип">
-              {ORIGINAL.map((item) => (
-                <button
-                  key={item.name}
-                  type="button"
-                  className="switch-item mono"
-                  aria-pressed={item.name === archetype}
-                  data-active={item.name === archetype}
-                  onClick={() => pick(item.name)}
-                >
-                  {item.name}
-                </button>
-              ))}
-            </div>
+            <SwitchTabs
+              label="Архетип"
+              group="sbx-archetype"
+              role="group"
+              options={ORIGINAL.map((item) => ({ id: item.name, label: item.name }))}
+              current={archetype}
+              onPick={pick}
+            />
           </div>
         </div>
 

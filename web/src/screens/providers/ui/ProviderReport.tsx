@@ -1,6 +1,7 @@
 import type { Report } from "~/shared/api/types";
 import { isBound } from "~/shared/api/types";
 import { roleTitle } from "~/shared/api/runs";
+import { ArrowRight } from "~/shared/design/ArrowRight";
 
 const Roles = ({ report }: { report: Report }) => (
   <div className="scroll-x" tabIndex={0} role="region" aria-label="Таблица ролей провайдера, прокрутка вбок">
@@ -47,8 +48,8 @@ const Statuses = ({ report }: { report: Report }) => (
     {Object.entries(report.statuses).map(([from, to]) => (
       <li key={from}>
         <span className="side-provider mono">{from}</span>
-        <span className="pairs-arrow" aria-hidden="true">
-          →
+        <span className="pairs-arrow">
+          <ArrowRight size={13} />
         </span>
         <span className="side-contract mono">{to}</span>
       </li>
