@@ -1,8 +1,3 @@
-export type LabSource = "baked" | "live";
-
-export const isLabSource = (value: string): value is LabSource =>
-  value === "baked" || value === "live";
-
 export const looksOffline = (error: string | undefined): boolean => {
   if (!error) return false;
   const text = error.toLowerCase();

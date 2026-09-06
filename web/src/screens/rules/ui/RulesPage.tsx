@@ -3,7 +3,7 @@ import type { PageProps } from "~/layout/types";
 import { useSearchParam } from "~/layout/useRoute";
 import { SideNav } from "~/shared/ui/SideNav";
 import { enterVariants, useSwapTransition } from "~/shared/lib/motion";
-import { Archetypes, Check, Contracts, Dictionaries, Playground } from "./sections";
+import { Archetypes, Check, ContractUpload, Contracts, Dictionaries, Playground } from "./sections";
 import "./rules.css";
 
 const SECTIONS = [
@@ -11,6 +11,7 @@ const SECTIONS = [
   { id: "archetypes", title: "Архетипы операций" },
   { id: "dictionaries", title: "Словари распознавания" },
   { id: "contracts", title: "Профили контрактов" },
+  { id: "upload", title: "Загрузить контракт" },
   { id: "sandbox", title: "Песочница" }
 ] as const;
 
@@ -19,15 +20,16 @@ type SectionId = (typeof SECTIONS)[number]["id"];
 const isSection = (value: string): value is SectionId =>
   SECTIONS.some((section) => section.id === value);
 
-const BODIES: Record<SectionId, () => React.ReactElement> = {
+const BODIES: Record<SectionId, React.ComponentType<PageProps>> = {
   check: Check,
   archetypes: Archetypes,
   dictionaries: Dictionaries,
   contracts: Contracts,
+  upload: ContractUpload,
   sandbox: Playground
 };
 
-const Rules = (_props: PageProps) => {
+const Rules = ({ go }: PageProps) => {
   const [raw, setSection] = useSearchParam("r", "check", isSection);
   const current: SectionId = isSection(raw) ? raw : "check";
   const Body = BODIES[current];
@@ -60,7 +62,7 @@ const Rules = (_props: PageProps) => {
               transition={swap}
             >
               <h2 className="rls-h2">{SECTIONS.find((section) => section.id === current)?.title}</h2>
-              <Body />
+              <Body go={go} />
             </motion.div>
           </AnimatePresence>
         </section>

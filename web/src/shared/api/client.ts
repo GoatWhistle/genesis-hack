@@ -41,7 +41,16 @@ export const build = (spec: string, provider: string, contract: string) =>
   });
 
 export const readRule = (key: string) =>
-  request<{ key: string; content: string }>(`/rules/${key}`);
+  request<{ key: string; content: string }>(`/rules/${rulePath(key)}`);
+
+const rulePath = (key: string) => key.split("/").map(encodeURIComponent).join("/");
+
+export const writeRule = (key: string, content: string) =>
+  request<{ saved: { key: string; kind: string; bytes: number } }>(`/rules/${rulePath(key)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/yaml" },
+    body: content
+  });
 
 export const listRules = (prefix = "") =>
   request<{ location: string; files: { key: string; kind: string }[] }>(

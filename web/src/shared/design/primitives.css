@@ -370,7 +370,7 @@
     flex-wrap: wrap;
     gap: var(--space-3) var(--space-4);
     align-items: baseline;
-    justify-content: space-between;
+    justify-content: flex-end;
     color: var(--color-ink-soft);
     font-size: var(--text-step--1);
   }

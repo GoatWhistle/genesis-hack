@@ -16,6 +16,20 @@
 
   .rls-archetypes { display: grid; gap: var(--space-5); }
 
+  .contract-upload { display: grid; gap: var(--space-3); max-width: 52rem; }
+  .contract-upload-form { display: grid; gap: var(--space-3); padding: var(--space-4); border: 1px solid var(--color-ink); border-radius: var(--radius-surface); background: var(--color-paper); }
+  .contract-upload-field { display: grid; gap: var(--space-1); }
+  .contract-upload-input { width: 100%; min-height: 2.75rem; padding-inline: var(--space-2); border: 1px solid var(--color-ink); border-radius: var(--radius-control); background: var(--color-paper); color: var(--color-ink); }
+  .contract-upload-field .switch { width: fit-content; max-width: 100%; flex-wrap: wrap; }
+  .contract-upload-filebox { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-3); border: 1px dashed var(--color-ink); border-radius: var(--radius-control); background: var(--color-surface); }
+  .contract-upload-filebox > div { display: grid; gap: 2px; }
+  .contract-upload-filebox span, .contract-upload-actions > span { color: var(--color-ink-faint); font-size: var(--text-step--1); }
+  .contract-upload-hidden { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+  .contract-upload-actions { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+  .contract-upload-notice { margin: 0; }
+  .contract-upload-success { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: var(--space-2); padding: var(--space-3); border: 1px solid var(--color-contract); border-radius: var(--radius-surface); background: var(--color-contract-soft); }
+  .contract-upload-success > div { display: flex; flex-wrap: wrap; align-items: center; gap: var(--space-2); }
+
   @media (min-width: 75rem) {
     .rls-archetypes { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: var(--space-5) var(--space-6); }
   }

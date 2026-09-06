@@ -5,6 +5,7 @@ import { AllFieldPatterns, AmountUnits, ErrorSemantics, StatusGroups } from "./D
 import { ContractBridge, ContractStatuses } from "./Contracts";
 import { Templates } from "./Templates";
 import { Sandbox } from "./Sandbox";
+export { ContractUpload } from "./ContractUpload";
 
 export const Check = () => (
   <>

@@ -1,18 +1,19 @@
 import { useRef, useState } from "react";
-import { profiles } from "~/shared/api/runs";
+import type { ContractProfile } from "~/shared/api/types";
 
 interface LabLiveProps {
   provider: string;
   contract: string;
+  profiles: ContractProfile[];
   spec: string;
   loading: boolean;
   error: string | undefined;
   offline: boolean;
   onProvider: (value: string) => void;
   onContract: (value: string) => void;
+  onUploadContract: () => void;
   onSpec: (value: string) => void;
   onSend: () => void;
-  onBaked: () => void;
 }
 
 const readDropped = (file: File, onSpec: (value: string) => void) => {
@@ -24,15 +25,16 @@ const readDropped = (file: File, onSpec: (value: string) => void) => {
 export const LabLive = ({
   provider,
   contract,
+  profiles,
   spec,
   loading,
   error,
   offline,
   onProvider,
   onContract,
+  onUploadContract,
   onSpec,
-  onSend,
-  onBaked
+  onSend
 }: LabLiveProps) => {
   const [over, setOver] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -63,19 +65,24 @@ export const LabLive = ({
 
         <div className="lab-live-field">
           <span className="label">Контракт</span>
-          <div className="switch" role="group" aria-label="Контракт">
-            {profiles.map((profile) => (
-              <button
-                key={profile.name}
-                type="button"
-                className="switch-item mono"
-                aria-pressed={profile.name === contract}
-                title={profile.title}
-                onClick={() => onContract(profile.name)}
-              >
-                {profile.name}
-              </button>
-            ))}
+          <div className="lab-contract-row">
+            <div className="switch" role="group" aria-label="Контракт">
+              {profiles.map((profile) => (
+                <button
+                  key={profile.name}
+                  type="button"
+                  className="switch-item mono"
+                  aria-pressed={profile.name === contract}
+                  title={profile.title}
+                  onClick={() => onContract(profile.name)}
+                >
+                  {profile.name}
+                </button>
+              ))}
+            </div>
+            <button type="button" className="btn btn-ghost" onClick={onUploadContract}>
+              + Загрузить контракт
+            </button>
           </div>
         </div>
       </div>
@@ -118,9 +125,6 @@ export const LabLive = ({
           {missing && !loading ? <span className="lab-live-missing">{missing}</span> : null}
           <button type="button" className="btn btn-ghost" onClick={() => fileRef.current?.click()}>
             Выбрать файл
-          </button>
-          <button type="button" className="btn btn-ghost" onClick={onBaked}>
-            Вернуться к запечённому
           </button>
           <input
             ref={fileRef}

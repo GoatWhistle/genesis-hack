@@ -38,9 +38,10 @@ export const useRoute = () => {
     return () => window.removeEventListener("popstate", onPop);
   }, []);
 
-  const go = useCallback((next: RoutePath) => {
-    if (next === readPathFromLocation()) return;
-    window.history.pushState({}, "", next);
+  const go = useCallback((next: RoutePath, search = "") => {
+    const address = `${next}${search}`;
+    if (address === `${window.location.pathname}${window.location.search}`) return;
+    window.history.pushState({}, "", address);
     setPath(next);
     window.scrollTo({ top: 0 });
   }, []);

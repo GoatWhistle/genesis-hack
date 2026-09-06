@@ -1,5 +1,5 @@
 import type { RoutePath } from "./routes";
 
 export interface PageProps {
-  go: (path: RoutePath) => void;
+  go: (path: RoutePath, search?: string) => void;
 }
