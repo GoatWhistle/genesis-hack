@@ -20,6 +20,8 @@ module Rsocket
     "config/importer", "config/storage",
     "service/adapter_builder/parsing/schema_probe",
     "service/adapter_builder/parsing/schema_resolver",
+    "service/adapter_builder/parsing/swagger2_normalizer",
+    "service/adapter_builder/parsing/operation_parser",
     "service/adapter_builder/parsing/spec_parser",
     "service/adapter_builder/classification/wording",
     "service/adapter_builder/classification/classifier",

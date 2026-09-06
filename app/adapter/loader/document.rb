@@ -2,12 +2,16 @@
 
 require "yaml"
 require "json"
+require "date"
 
 module Adapter
   module Loader
     # Разбор текста описания API; источник задаёт адаптер.
     module Document
       MAX_BYTES = 8 * 1024 * 1024
+      # Провайдеры пишут даты без кавычек ("2024-01-01"); YAML читает их как
+      # объекты этих классов — их нужно явно разрешить, иначе Psych отказывает.
+      PERMITTED_CLASSES = [Date, Time, DateTime].freeze
 
       module_function
 
@@ -43,7 +47,8 @@ module Adapter
       # @return [Object]
       # @raise [ArgumentError] YAML не разобрался
       def parse_yaml(content)
-        YAML.safe_load(content, aliases: true, symbolize_names: true)
+        YAML.safe_load(content, permitted_classes: PERMITTED_CLASSES, aliases: true,
+                                symbolize_names: true)
       rescue Psych::Exception => e
         raise ArgumentError, "не разобрать YAML: #{e.message}"
       end

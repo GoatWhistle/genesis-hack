@@ -3,15 +3,19 @@
 module Service
   module AdapterBuilder
     module Parsing
-      # Сырое описание API → модели: $ref раскрыты, allOf объединены.
+      # Сырое описание API → модели: $ref раскрыты, allOf объединены. Понимает
+      # OpenAPI 3.x (paths, webhooks, callbacks) и Swagger 2.0 (приводится к той же
+      # форме через Swagger2Normalizer до разбора).
       class SpecParser
-        HTTP_METHODS = %w[get post put patch delete].freeze
-        JSON_CONTENT = %i[application/json application/problem+json].freeze
+        SUPPORTED_OPENAPI = "3"
 
-        # @param document [Hash] сырое описание OpenAPI, ключи символами
+        # @param document [Hash] сырое описание OpenAPI или Swagger 2.0, ключи символами
+        # @raise [ArgumentError] описание не OpenAPI/Swagger, версия не поддержана,
+        #   либо в нём нет ни paths, ни webhooks
         def initialize(document)
-          @document = document
-          @resolver = SchemaResolver.new(document)
+          ensure_supported(document)
+          @document = swagger2?(document) ? Swagger2Normalizer.new(document).call : document
+          @resolver = SchemaResolver.new(@document)
         end
 
         # @return [Models::ApiSpec] описание в том виде, в каком его читают правила
@@ -23,12 +27,44 @@ module Service
             version: @document.dig(:info, :version).to_s,
             servers: parse_servers,
             security_schemes: parse_security_schemes,
-            operations: parse_operations,
+            operations: OperationParser.new(@document, @resolver).call,
             schemas: @document.dig(:components, :schemas) || {}
           )
         end
 
         private
+
+        # @param document [Hash]
+        # @return [Boolean]
+        def swagger2?(document) = document[:swagger].to_s.start_with?("2")
+
+        # Разбор не должен молча превращаться в пустой список операций: непонятный
+        # документ или неподдержанная версия называются словами сразу. Ключ версии
+        # необязателен сам по себе — важно лишь то, что если он назван, то верно.
+        # @param document [Hash]
+        # @return [void]
+        # @raise [ArgumentError]
+        def ensure_supported(document)
+          if unsupported_version?(document)
+            raise ArgumentError, "версия не поддержана: #{version_of(document)}"
+          end
+          return if document[:paths] || document[:webhooks]
+
+          raise ArgumentError, "описание не OpenAPI/Swagger: нет ни paths, ни webhooks"
+        end
+
+        # @param document [Hash]
+        # @return [Boolean] версия названа явно, но это не OpenAPI 3.x и не Swagger 2.0
+        def unsupported_version?(document)
+          return !document[:openapi].to_s.start_with?(SUPPORTED_OPENAPI) if document[:openapi]
+          return !swagger2?(document) if document[:swagger]
+
+          false
+        end
+
+        # @param document [Hash]
+        # @return [String]
+        def version_of(document) = (document[:openapi] || document[:swagger]).to_s
 
         # @return [Array<Models::ApiSpec::Server>]
         def parse_servers
@@ -45,103 +81,6 @@ module Service
               parameter: body[:name], scheme: body[:scheme]
             )
           end
-        end
-
-        # Операции всех путей одним списком; параметры уровня пути добавляются каждой.
-        # @return [Array<Models::ApiOperation>]
-        def parse_operations
-          (@document[:paths] || {}).flat_map do |path, node|
-            shared = Array(node[:parameters])
-            node.slice(*HTTP_METHODS.map(&:to_sym)).map do |verb, body|
-              build_operation(path.to_s, verb, body, shared)
-            end
-          end
-        end
-
-        # @param path [String] шаблон пути
-        # @param verb [Symbol] глагол HTTP
-        # @param body [Hash] тело операции из описания
-        # @param shared [Array<Hash>] параметры, объявленные на уровне пути
-        # @return [Models::ApiOperation]
-        def build_operation(path, verb, body, shared)
-          Models::ApiOperation.new(
-            operation_id: body[:operationId], http_method: verb, path: path,
-            summary: body[:summary], description: body[:description],
-            tags: Array(body[:tags]).map(&:to_s), **operation_details(body, shared)
-          )
-        end
-
-        # @param body [Hash] тело операции
-        # @param shared [Array<Hash>] параметры уровня пути
-        # @return [Hash] параметры, схема запроса, ответы и требования авторизации
-        def operation_details(body, shared)
-          {
-            parameters: parse_parameters(shared + Array(body[:parameters])),
-            request: request_body(body[:requestBody]),
-            responses: parse_responses(body[:responses]),
-            security: body[:security] || @document[:security]
-          }
-        end
-
-        # @param raw [Array<Hash>] параметры вперемешку с $ref
-        # @return [Array<Hash>] { name:, in:, required:, description:, schema: }
-        def parse_parameters(raw)
-          raw.map { |parameter| @resolver.call(parameter) }.compact.map do |parameter|
-            {
-              name: parameter[:name].to_s,
-              in: parameter[:in].to_s,
-              required: parameter[:required] == true,
-              description: parameter[:description].to_s,
-              schema: parameter[:schema]
-            }
-          end
-        end
-
-        # @param raw [Hash, nil] requestBody операции
-        # @return [Hash] { schema:, example: }
-        def request_body(raw)
-          body = @resolver.call(raw)
-          return { schema: nil, example: nil } if body.nil?
-
-          json_body(body[:content])
-        end
-
-        # @param responses [Hash, nil] ответы операции
-        # @return [Hash{String => Hash}] код → { description:, schema:, example: }
-        def parse_responses(responses)
-          (responses || {}).to_h do |code, body|
-            resolved = @resolver.call(body) || {}
-            [code.to_s,
-             { description: resolved[:description].to_s, **json_body(resolved[:content]) }]
-          end
-        end
-
-        # Тело берётся в JSON; без него — первый описанный тип.
-        # @param content [Hash, nil] секция content
-        # @return [Hash] схема выбранного типа и пример, если провайдер его привёл
-        def json_body(content)
-          media = json_content(content)
-          { schema: @resolver.call(media&.dig(:schema)), example: example_of(media) }
-        end
-
-        # @param content [Hash, nil] секция content
-        # @return [Hash, nil] описание выбранного типа содержимого целиком
-        def json_content(content)
-          return nil if content.nil?
-
-          key = JSON_CONTENT.find { |name| content.key?(name) } || content.keys.first
-          content[key]
-        end
-
-        # Пример из описания приоритетен для фикстур.
-        # @param media [Hash, nil] описание типа содержимого
-        # @return [Object, nil] пример из example или первый из examples
-        def example_of(media)
-          return nil unless media.is_a?(Hash)
-          return media[:example] if media.key?(:example)
-
-          first = Array(media[:examples]&.values).first
-          first.is_a?(Hash) ? first[:value] : nil
         end
       end
     end

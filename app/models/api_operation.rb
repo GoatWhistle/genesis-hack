@@ -4,7 +4,8 @@ module Models
   # Операция описания API: $ref раскрыты, ответы разложены по кодам.
   class ApiOperation
     attr_reader :operation_id, :http_method, :path, :summary, :description, :tags,
-                :parameters, :responses, :security
+                :parameters, :responses, :security, :incoming
+    alias incoming? incoming
 
     # @param operation_id [String, nil] operationId из описания
     # @param http_method [String, Symbol] глагол HTTP, приводится к нижнему регистру
@@ -14,20 +15,19 @@ module Models
     # @param tags [Array<String>] теги операции
     # @param parameters [Array<Hash>] записи { name:, in:, required:, description:, schema: }
     # @param request [Hash] тело запроса: { schema:, example: }, $ref уже раскрыты
-    # @param responses [Hash{String => Hash}] код ответа → { description:, schema: }
+    # @param responses [Hash{String => Hash}] код ответа → { description:, схема: }
     # @param security [Array<Hash>, nil] требования авторизации операции
+    # @param incoming [Boolean] операция объявлена в webhooks/callbacks, а не в paths
     def initialize(operation_id:, http_method:, path:, summary: nil, description: nil, tags: [],
-                   parameters: [], request: {}, responses: {}, security: nil)
+                   parameters: [], request: {}, responses: {}, security: nil, incoming: false)
       @operation_id = operation_id
       @http_method = http_method.to_s.downcase
       @path = path
       @summary = summary
       @description = description
       @tags = tags
-      @parameters = parameters
-      @request = request
-      @responses = responses
-      @security = security
+      assign_body(parameters: parameters, request: request, responses: responses,
+                  security: security, incoming: incoming)
     end
 
     # @return [Hash, nil] схема тела запроса
@@ -84,12 +84,29 @@ module Models
 
     private
 
-    # @param value [String] имя в camelCase или kebab-case
+    # Вторая половина полей конструктора — вынесена, чтобы initialize не разросся.
+    # @param parameters [Array<Hash>]
+    # @param request [Hash]
+    # @param responses [Hash]
+    # @param security [Array<Hash>, nil]
+    # @param incoming [Boolean]
+    # @return [void]
+    def assign_body(parameters:, request:, responses:, security:, incoming:)
+      @parameters = parameters
+      @request = request
+      @responses = responses
+      @security = security
+      @incoming = incoming
+    end
+
+    # @param value [String] имя в camelCase, kebab-case, с точками (имя события webhook)
+    #   или с пробелами: имя операции обязано годиться в имя метода Ruby
     # @return [String] то же имя в snake_case
     def snake_case(value)
       value.gsub(/([a-z\d])([A-Z])/, '\1_\2')
            .gsub(/([A-Z]+)([A-Z][a-z])/, '\1_\2')
-           .tr("-", "_")
+           .tr("-. ", "___")
+           .squeeze("_")
            .downcase
     end
   end
