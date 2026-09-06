@@ -2,13 +2,14 @@ import { useState } from "react";
 
 const WAYS = [
   {
-    title: "По HTTP",
+    title: "Через публичный API",
     command:
-      'curl -X POST "http://127.0.0.1:9292/build?provider=novapay" --data-binary @examples/novapay/provider_api.yaml'
+      'curl -X POST "https://genesis.goatwhistle.ru/api/build?provider=novapay&contract=space_payments" -H "Content-Type: application/yaml" --data-binary @examples/novapay/provider_api.yaml'
   },
   {
-    title: "Из командной строки",
-    command: "bundle exec bin/rsocket build -s examples/novapay/provider_api.yaml -p novapay"
+    title: "Локально из репозитория",
+    command:
+      "bundle exec bin/rsocket build -s examples/novapay/provider_api.yaml -p novapay -c space_payments"
   }
 ];
 
