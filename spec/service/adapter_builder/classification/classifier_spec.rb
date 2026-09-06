@@ -56,4 +56,61 @@ RSpec.describe Service::AdapterBuilder::Classification::Classifier do
       expect(bindings.fetch(:create_request).operation.method_name).not_to eq("issue_refund")
     end
   end
+
+  describe "на неоднозначных названиях чужих API" do
+    def operation(id, method: :post, path: "/", summary: nil, tags: [])
+      Models::ApiOperation.new(operation_id: id, http_method: method, path: path,
+                               summary: summary, tags: tags)
+    end
+
+    it "предпочитает исходящую выплату внутреннему переводу и черновику" do
+      operations = [
+        operation("createTransfer", path: "/transfer",
+                                    summary: "Move money between your accounts"),
+        operation("createPaymentDraft", path: "/payment-drafts",
+                                        summary: "Create a payment draft"),
+        operation("createPayment", path: "/pay",
+                                   summary: "Create a transfer to another account")
+      ]
+
+      binding = described_class.new(rules).call(operations).fetch(:create_request)
+
+      expect(binding.operation.method_name).to eq("create_payment")
+    end
+
+    it "распознаёт исходящую ACH-транзакцию и не берёт перевод на внешнюю карту" do
+      operations = [
+        operation("createExternalCardTransfer", path: "/external_cards/transfers",
+                                                summary: "Create External Card Transfer"),
+        operation("addTransactionOut", path: "/ach", summary: "Send an ACH")
+      ]
+
+      binding = described_class.new(rules).call(operations).fetch(:create_request)
+
+      expect(binding.operation.method_name).to eq("add_transaction_out")
+    end
+
+    it "не считает merchant order исходящей выплатой" do
+      operations = [
+        operation("createOrder", path: "/api/createOrder", summary: "Create merchant order")
+      ]
+
+      binding = described_class.new(rules).call(operations).fetch(:create_request)
+
+      expect(binding).not_to be_bound
+    end
+
+    it "считает PUT и PATCH допустимыми методами отмены" do
+      operations = [
+        operation("createPayout", path: "/payouts", summary: "Create payout"),
+        operation("cancelPayoutTransaction", method: :put,
+                                              path: "/payouts/{id}/transactions/{transaction_id}/cancel",
+                                              summary: "Cancel a payout transaction")
+      ]
+
+      binding = described_class.new(rules).call(operations).fetch(:cancel_request)
+
+      expect(binding.operation.method_name).to eq("cancel_payout_transaction")
+    end
+  end
 end
