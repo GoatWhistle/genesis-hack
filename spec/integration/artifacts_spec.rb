@@ -57,7 +57,7 @@ RSpec.describe "выходные файлы сборки" do
     end
 
     describe "когда провайдер не описывает уведомления" do
-      subject(:result) { build_service("plainpay") }
+      subject(:result) { build_service("swiftpay") }
 
       it "оставляет раздел пустым, а не выдумывает примеры" do
         expect(fixtures.fetch("callbacks")).to be_empty
