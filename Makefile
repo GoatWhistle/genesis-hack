@@ -14,7 +14,7 @@ RSOCKET := $(BUNDLE) bin/rsocket
 
 .DEFAULT_GOAL := help
 .PHONY: help install check test lint lint-fix build examples doctor contracts \
-        serve rackup request up down logs push clean bench
+        serve rackup request up down logs push clean bench specs
 
 help: ## показать этот список
 	@echo "Команды:"
@@ -42,6 +42,9 @@ lint-fix: ## поправить то, что линтер умеет прави�
 build: ## собрать интеграцию: make build PROVIDER=novapay [SPEC=... CONTRACT=... CLASSIFIER=...]
 	$(RSOCKET) build --spec $(SPEC) --provider $(PROVIDER) \
 		--contract $(CONTRACT) --out $(OUT) --classifier $(CLASSIFIER)
+
+specs: ## скачать описания чужих провайдеров в bench/specs/ (см. bench/specs/SOURCES.md)
+	bench/fetch_specs.sh
 
 bench: ## замерить три способа раздачи ролей: make bench [KINDS="rules llm"]
 	$(BUNDLE) ruby bench/classifiers.rb $(KINDS)

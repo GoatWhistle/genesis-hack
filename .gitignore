@@ -23,7 +23,10 @@
 
 desc.docx
 rsocket-how-it-works.pdf
-provider_api.yaml
+# Только описание в корне репозитория. Без ведущей косой черты правило глушило
+# любой provider_api.yaml на любой глубине — в том числе bench/unseen/, который
+# нужен замеру и должен лежать в репозитории.
+/provider_api.yaml
 
 # Витрина web/: зависимости, сборка и рабочие снимки экрана
 /web/node_modules/
@@ -41,3 +44,9 @@ provider_api.yaml
 /*.webp
 /*.yml
 !/compose.yaml
+
+# Описания чужих API, скачанные для замеров: часть без лицензии, вместе — 17 МБ.
+# Что откуда взято и на каких условиях — в bench/specs/SOURCES.md, качает всё
+# bench/fetch_specs.sh.
+/bench/specs/*
+!/bench/specs/SOURCES.md
