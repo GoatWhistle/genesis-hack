@@ -7,7 +7,8 @@ FROM ruby:3.3-alpine
 # пересобирается за секунды.
 WORKDIR /app
 COPY Gemfile Gemfile.lock ./
-RUN bundle config set --local without "development test" \
+# В продакшене используется только классификатор на регулярках.
+RUN bundle config set --local without "development test classifiers" \
  && bundle install --jobs 4 --retry 2 \
  && rm -rf /usr/local/bundle/cache
 
