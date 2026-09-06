@@ -70,8 +70,8 @@ Ruby-файл от неё не зависит, и вся она умещаетс
     scripts/         запекание, smoke-проверка, запрет комментариев
     infra/           Caddyfile, compose для прода, инструкция по выкладке
 
-Подробно — [ARCHITECTURE.md](ARCHITECTURE.md). Правила, обязательные при
-правке кода, — [FOUNDATION.md](FOUNDATION.md). Выкладка на VPS —
+Подробно — [ARCHITECTURE.md](ARCHITECTURE.md): раскладка каталогов, правила,
+обязательные при правке кода, и дизайн-система. Выкладка на VPS —
 [infra/DEPLOY.md](infra/DEPLOY.md).
 
 ## Команды

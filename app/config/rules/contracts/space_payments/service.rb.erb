@@ -247,7 +247,15 @@ class Provider
     # @return [String, nil] значение ключа
     def credential(name)
       store = respond_to?(:provider) && provider ? provider.credentials.to_h : {}
-      store[name.to_s] || store[name.to_sym] || ENV.fetch("#{ENV_PREFIX}_#{name.to_s.upcase}", nil)
+      store[name.to_s] || store[name.to_sym] || env_credential(name)
+    end
+
+    # Переменные окружения Ruby помечает кодировкой локали, а ключ — обычный текст:
+    # без явного UTF-8 он не склеится с заголовком там, где локаль не выставлена.
+    # @param name [Symbol] имя ключа схемы авторизации
+    # @return [String, nil] значение ключа из окружения
+    def env_credential(name)
+      ENV.fetch("#{ENV_PREFIX}_#{name.to_s.upcase}", nil)&.dup&.force_encoding(Encoding::UTF_8)
     end
 
     # Пустое тело у 204 — норма; нераспознанное отдаём как есть под ключом raw.

@@ -18,6 +18,10 @@ class RsocketCLI < Thor
   # @return [Boolean] несобравшийся сервис — повод для ненулевого кода возврата
   def self.exit_on_failure? = true
 
+  # Thor приносит с собой команду tree: она печатает дерево команд по-английски и
+  # к работе инструмента отношения не имеет — в справке ей делать нечего.
+  remove_command :tree
+
   desc "build", "Собрать интеграцию по описанию API провайдера"
   option :spec, required: true, aliases: "-s", desc: "путь к OpenAPI-описанию"
   option :provider, required: true, aliases: "-p", desc: "имя провайдера, например novapay"
@@ -25,15 +29,12 @@ class RsocketCLI < Thor
                desc: "каталог для результата при локальном хранилище"
   option :contract, **CONTRACT
   option :storage, **STORAGE
-  option :classifier, desc: "чем раздавать роли: #{Rsocket::CLASSIFIERS.keys.join(", ")} " \
-                            "(по умолчанию #{Rsocket::DEFAULT_CLASSIFIER})"
   option :test, type: :boolean, default: true,
                 desc: "в конце сборки подёргать собранный класс на его же фикстурах"
   # @return [void]
   def build
     outcome = assembler.call(spec: options[:spec], provider: options[:provider],
-                             contract: options[:contract], classifier: options[:classifier],
-                             tester: options[:test])
+                             contract: options[:contract], tester: options[:test])
     print_summary(outcome)
   rescue StandardError => e
     warn "не собралось: #{e.message}"

@@ -2,6 +2,11 @@
 
 require "pathname"
 
+# Правила, шаблоны и описания API написаны в UTF-8, а Ruby читает файлы в кодировке
+# локали процесса: при пустой LANG это US-ASCII, и кириллица приезжает нечитаемой.
+# Кодировку задаём сами, чтобы сборка не зависела от окружения, в котором запущена.
+Encoding.default_external = Encoding::UTF_8
+
 module Rsocket
   ROOT = Pathname.new(__dir__).parent.freeze
   APP = ROOT.join("app").freeze
@@ -62,35 +67,13 @@ module Rsocket
 
   DEFAULT_CLASSIFIER = "rules"
 
-  # Смысловые классификаторы вне репозитория; подключаются, если файлы лежат рядом.
-  OPTIONAL = {
-    "embeddings" => ["adapter/embedding/voyage", "adapter/classification/embeddings"],
-    "llm" => ["adapter/classification/llm", "adapter/classification/llm/prompt"]
-  }.freeze
-
   FILES.each { |file| require APP.join("#{file}.rb").to_s }
 
-  # Способ доступен, если файлы есть и загрузились: нет гема — нет способа.
-  # @param files [Array<String>] файлы одного способа, в порядке загрузки
-  # @return [Boolean] можно ли им пользоваться
-  def self.optional(files)
-    return false unless files.all? { |file| APP.join("#{file}.rb").exist? }
-
-    files.each { |file| require APP.join("#{file}.rb").to_s }
-    true
-  rescue LoadError
-    false
-  end
-
-  # Доступные смысловые способы; список формируется один раз при загрузке.
-  AVAILABLE = OPTIONAL.select { |_, files| optional(files) }.keys.freeze
-
-  # Способы раздачи ролей; правила есть всегда, смысловые — если файлы найдены.
+  # Способы раздачи ролей. Список — единственное место, где сценарий сборки узнаёт
+  # о реализациях порта Ports::Classifier: новый способ добавляется строкой сюда.
   CLASSIFIERS = {
-    "rules" => ->(rules) { Service::AdapterBuilder::Classification::Classifier.new(rules) },
-    "embeddings" => ->(rules) { Adapter::Classification::Embeddings.new(rules) },
-    "llm" => ->(rules) { Adapter::Classification::Llm.new(rules) }
-  }.select { |name, _| name == DEFAULT_CLASSIFIER || AVAILABLE.include?(name) }.freeze
+    "rules" => ->(rules) { Service::AdapterBuilder::Classification::Classifier.new(rules) }
+  }.freeze
 
   # @param kind [String, Symbol, #call] имя классификатора или готовый объект —
   #   готовый объект позволяет переиспользовать клиент и соединение между сборками
@@ -127,8 +110,8 @@ module Rsocket
   # @param catalog [Config::Catalog] откуда берутся правила: диск или бакет
   # @param rules [Config::Settings] правила разбора
   # @param spec_source [Ports::SpecSource] откуда берём описание: файл или текст запроса
-  # @param classifier [String, Symbol, #call, nil] чем раздавать роли: rules, embeddings
-  #   или llm; nil — значение RSOCKET_CLASSIFIER, при её отсутствии — правила
+  # @param classifier [String, Symbol, #call, nil] чем раздавать роли; nil — значение
+  #   переменной RSOCKET_CLASSIFIER, а без неё — правила
   # @param tester [Boolean, #call, nil] проверять ли собранный класс на фикстурах
   # @return [Service::AdapterBuilder::Builder]
   def self.builder(contract: Config::Catalog.default, catalog: Config::Catalog.new,

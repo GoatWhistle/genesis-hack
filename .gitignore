@@ -43,19 +43,6 @@ rsocket-how-it-works.pdf
 /*.yml
 !/compose.yaml
 
-# Замеры целиком: чужие описания API (часть без лицензии, вместе — 17 МБ),
-# скрипты и результаты прогонов. Что откуда взято — в bench/specs/SOURCES.md,
-# качает всё bench/fetch_specs.sh.
+# Черновые прогоны на чужих описаниях API: часть без лицензии, вместе — 17 МБ.
+# Место им на диске у разработчика, а не в репозитории.
 /bench/
-
-# Смысловые классификаторы — работа на пробу: каждому нужен внешний сервис и ключ
-# к нему. Сборка обязана идти без сети, поэтому в репозиторий они не едут, а
-# инструмент подхватывает их, только если файлы лежат рядом (см. Rsocket::OPTIONAL).
-# Здесь же их проверки и подставные внешние сервисы для них.
-/app/adapter/embedding/
-/app/adapter/classification/embeddings.rb
-/app/adapter/classification/llm.rb
-/app/adapter/classification/llm/
-/spec/adapter/embedding/
-/spec/adapter/classification/
-/spec/support/classification.rb
