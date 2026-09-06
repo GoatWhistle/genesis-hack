@@ -56,10 +56,14 @@ class Provider
 
     # Ответ провайдера: код, разобранное тело и причина, если до провайдера не дошли.
     Response = Struct.new(:code, :body, :error) do
+      # @return [Boolean] ответ дошёл и провайдер не отказал
       def success? = error.nil? && code.between?(200, 299)
     end
 
     # Предпроверки: ограничения провайдера поверх общих проверок BaseService.
+    # @param operation [Operation] операция заказчика
+    # @param request_method [String] какой вызов проверяем, из контракта BaseService
+    # @return [Result] success либо failure с кодом отказа
     def check_conditions(operation, request_method)
       result = super
       return result if result.failed?
@@ -76,6 +80,9 @@ class Provider
 <% origin(:create_request).each do |line| -%>
     # <%= line %>.
 <% end -%>
+    # @param operation [Operation] операция заказчика
+    # @param request_method [String] какой вызов делаем, из контракта BaseService
+    # @return [Result] success с проставленным provider_operation_id либо failure
     def create_request(operation, request_method = "create")
       response = <%= request_for(:create_request, "create_request_body(operation)") %>
       return handle_error(response) unless response.success?
@@ -87,6 +94,8 @@ class Provider
 <% origin(:fetch_status).each do |line| -%>
     # <%= line %>.
 <% end -%>
+    # @param operation [Operation] операция заказчика
+    # @return [String, Result] состояние в терминах контракта либо failure
     def fetch_status(operation)
       response = <%= request_for(:fetch_status, "fetch_status_body(operation)") %>
       return handle_error(response) unless response.success?
@@ -98,6 +107,9 @@ class Provider
 <% origin(:process_callback).each do |line| -%>
     # <%= line %>.
 <% end -%>
+    # @param payload [Hash] тело уведомления, при проверке подписи — с ключами
+    #   "headers" и "raw_body"
+    # @return [Result] success либо failure с причиной
     def process_callback(payload)
 <% if signature? -%>
       return failure(:unauthorized, "provider.invalid_signature") unless valid_signature?(payload)
@@ -115,6 +127,8 @@ class Provider
 <% else -%>
     # Webhook в описании провайдера не найден: <%= binding_for(:process_callback).explanation %>.
     # Состояние узнаётся опросом fetch_status.
+    # @param _payload [Hash] тело уведомления, читать его нечем
+    # @return [Result] failure: провайдер не описывает webhook
     def process_callback(_payload)
       failure(:not_implemented, "provider.callback_not_supported")
     end
@@ -125,6 +139,8 @@ class Provider
     # <%= line %>.
 <% end -%>
     # Метод сверх контракта BaseService: провайдер умеет отменять операцию.
+    # @param operation [Operation] операция заказчика
+    # @return [String, Result] состояние после отмены либо failure
     def cancel_request(operation)
       response = <%= request_for(:cancel_request, "cancel_request_body(operation)") %>
       return handle_error(response) unless response.success?
@@ -134,6 +150,8 @@ class Provider
 <% end -%>
 
     # Можно ли повторить операцию после этого кода ответа — по таблице действий выше.
+    # @param http_code [Integer, String] код ответа провайдера
+    # @return [Boolean] есть ли смысл повторить запрос
     def retriable_error?(http_code)
       code, = ERROR_MAP.fetch(http_code.to_i, ERROR_MAP.fetch(:default))
       ERROR_ACTIONS.fetch(code.to_s, "alert").start_with?("retry")
@@ -142,11 +160,20 @@ class Provider
     private
 
     # Один запрос к провайдеру: адрес, авторизация, JSON туда и обратно.
+    # @param http_method [Symbol] :get, :post и так далее
+    # @param path [String] адрес с уже подставленными параметрами
+    # @param body [Hash, nil] тело запроса
+    # @param query [Hash] параметры строки запроса
+    # @param headers [Hash] заголовки сверх обычных
+    # @return [Response] ответ провайдера
     def request(http_method, path, body: nil, query: {}, headers: {})
       uri = build_uri(path, query)
       perform(uri, build_request(http_method, uri, body, headers))
     end
 
+    # @param path [String] адрес без имени хоста
+    # @param query [Hash] параметры строки запроса
+    # @return [URI] адрес, по которому уходит запрос
     def build_uri(path, query)
       uri = URI.parse("#{BASE_URL.chomp("/")}#{path}")
 <% if credentials.query_pair -%>
@@ -159,6 +186,11 @@ class Provider
       uri
     end
 
+    # @param http_method [Symbol] :get, :post и так далее
+    # @param uri [URI] адрес запроса
+    # @param body [Hash, nil] тело запроса
+    # @param headers [Hash] заголовки сверх обычных
+    # @return [Net::HTTPRequest] подписанный запрос
     def build_request(http_method, uri, body, headers)
       message = Net::HTTP.const_get(http_method.to_s.capitalize).new(uri)
       default_headers.merge(headers.compact).each { |name, value| message[name] = value.to_s }
@@ -169,6 +201,9 @@ class Provider
 
     # Сеть до провайдера не дошла — это не ответ с кодом ошибки, и повторять такое
     # безопасно: запрос подписан ключом идемпотентности либо ничего не изменил.
+    # @param uri [URI] адрес запроса
+    # @param message [Net::HTTPRequest] подписанный запрос
+    # @return [Response] с причиной в error, если до провайдера не дошли
     def perform(uri, message)
       raw = Net::HTTP.start(uri.host, uri.port, use_ssl: uri.scheme == "https",
                                                 open_timeout: OPEN_TIMEOUT,
@@ -180,6 +215,7 @@ class Provider
       Response.new(0, {}, e.message)
     end
 
+    # @return [Hash{String => String}] заголовки, которые уходят с любым запросом
     def default_headers
       { "Content-Type" => "application/json", "Accept" => "application/json",
         "User-Agent" => USER_AGENT }
@@ -188,6 +224,8 @@ class Provider
 <% credentials.comment.each do |line| -%>
     # <%= line %>
 <% end -%>
+    # @param message [Net::HTTPRequest] запрос, который подписываем
+    # @return [void]
     def authorize(message)
 <% credentials.lines.each do |line| -%>
       <%= line %>
@@ -195,6 +233,8 @@ class Provider
     end
 
     # Ключи берём из providers.credentials, а без контекста провайдера — из ENV.
+    # @param name [Symbol] имя ключа схемы авторизации
+    # @return [String, nil] значение ключа
     def credential(name)
       store = respond_to?(:provider) && provider ? provider.credentials.to_h : {}
       store[name.to_s] || store[name.to_sym] || ENV.fetch("#{ENV_PREFIX}_#{name.to_s.upcase}", nil)
@@ -202,6 +242,8 @@ class Provider
 
     # Пустое тело у 204 — обычное дело, а нераспознанное отдаём как есть: по нему
     # видно, что провайдер ответил не тем, чем обещал в описании.
+    # @param raw [String, nil] тело ответа как есть
+    # @return [Hash] разобранное тело; нераспознанное лежит под ключом "raw"
     def parse_body(raw)
       return {} if raw.nil? || raw.empty?
 
@@ -213,6 +255,8 @@ class Provider
 
     # Тело запроса на создание. Имена полей — как у провайдера: тело уходит в JSON
     # без переименований.
+    # @param operation [Operation] операция заказчика
+    # @return [Hash] тело запроса
     def create_request_body(operation)
       {
 <%= payload_literal(call_for(:create_request).payload, 8) %>
@@ -221,6 +265,8 @@ class Provider
 <% end -%>
 <% if body?(:fetch_status) -%>
 
+    # @param operation [Operation] операция заказчика
+    # @return [Hash] тело запроса
     def fetch_status_body(operation)
       {
 <%= payload_literal(call_for(:fetch_status).payload, 8) %>
@@ -229,6 +275,8 @@ class Provider
 <% end -%>
 <% if body?(:cancel_request) -%>
 
+    # @param operation [Operation] операция заказчика
+    # @return [Hash] тело запроса
     def cancel_request_body(operation)
       {
 <%= payload_literal(call_for(:cancel_request).payload, 8) %>
@@ -237,12 +285,17 @@ class Provider
 <% end -%>
 
     # Сумма в том виде, в каком её ждёт провайдер.
+    # @param operation [Operation] операция заказчика
+    # @return [Integer, Float, String] сумма в единицах провайдера
     def provider_amount(operation)
       <%= amount_expression %>
     end
 
     # Реквизиты получателя лежат в payout_requisite; часть провайдеров группирует
     # их по способу выплаты — тогда заглядываем и во вложенный раздел.
+    # @param operation [Operation] операция заказчика
+    # @param key [String] имя реквизита у провайдера
+    # @return [Object, nil] значение реквизита
     def requisite(operation, key)
       store = operation.payout_requisite.to_h
       return store[key] || store[key.to_sym] if store.key?(key) || store.key?(key.to_sym)
@@ -256,12 +309,16 @@ class Provider
       nil
     end
 
+    # @param value [Object] состояние словами провайдера
+    # @return [String] состояние в терминах контракта
     def map_status(value)
       # Неизвестное состояние безопаснее считать незавершённым, чем закрыть операцию.
       STATUS_MAP.fetch(value.to_s.strip.downcase, "in_progress")
     end
 <% if bound?(:process_callback) -%>
 
+    # @param payload [Hash] тело уведомления
+    # @return [String] состояние в терминах контракта
     def callback_status(payload)
 <% if event_map.any? && callback.event_path -%>
       event = dig_body(payload, <%= path_literal(callback.event_path) %>)
@@ -271,6 +328,8 @@ class Provider
       map_status(dig_body(payload, <%= path_literal(callback.status_path || ["status"]) %>))
     end
 
+    # @param payload [Hash] тело уведомления
+    # @return [String, nil] код ошибки провайдера
     def callback_error(payload)
 <% if callback.error_path -%>
       dig_body(payload, <%= path_literal(callback.error_path) %>)
@@ -284,6 +343,8 @@ class Provider
     # Подпись: <%= callback.signature_algorithm.upcase %> от тела запроса.
     # Заголовки ожидаются в payload["headers"] — если в вашем контроллере это
     # не так, поправьте два метода ниже, остальное трогать не нужно.
+    # @param payload [Hash] тело уведомления вместе с заголовками
+    # @return [Boolean] подпись сходится или проверять её нечем
     def valid_signature?(payload)
       secret = credential(:callback_secret)
       return true if secret.nil?
@@ -293,11 +354,15 @@ class Provider
       received.bytesize == expected.bytesize && OpenSSL.secure_compare(received, expected)
     end
 
+    # @param payload [Hash] тело уведомления вместе с заголовками
+    # @return [String, nil] подпись из заголовка
     def callback_signature(payload)
       headers = payload["headers"] || payload[:headers] || {}
       headers.to_h.find { |name, _| name.to_s.casecmp?(SIGNATURE_HEADER) }&.last
     end
 
+    # @param payload [Hash] тело уведомления
+    # @return [String] то, что провайдер подписывал
     def callback_body(payload)
       payload["raw_body"] || payload[:raw_body] ||
         payload.to_h.reject { |key, _| %w[headers raw_body].include?(key.to_s) }.to_json
@@ -306,6 +371,9 @@ class Provider
 
     # Тело ответа и тело webhook — обычные хеши: имена полей провайдер задал сам,
     # поэтому ключи не переименовываем, но принимаем и символы.
+    # @param body [Hash, nil] тело ответа или уведомления
+    # @param path [Array<String>] путь до значения
+    # @return [Object, nil] значение по пути
     def dig_body(body, *path)
       path.reduce(body) do |node, key|
         break nil unless node.respond_to?(:[])
@@ -314,6 +382,8 @@ class Provider
       end
     end
 
+    # @param response [Response] ответ, который не прошёл
+    # @return [Result] failure с символом статуса и кодом контракта
     def handle_error(response)
       return failure(:gateway_timeout, "provider.transport_error") if response.error
 

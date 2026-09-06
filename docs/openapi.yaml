@@ -269,7 +269,7 @@ paths:
                 $ref: "#/components/schemas/Error"
               example:
                 error: "не распознаны обязательные роли: create_request, fetch_status.
-                  Правила распознавания — в app/config/base.yml, роли — в профиле контракта"
+                  Правила распознавания — в app/config/rules/base.yml, роли — в профиле контракта"
 
 components:
   responses:

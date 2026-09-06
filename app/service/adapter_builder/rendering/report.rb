@@ -66,13 +66,21 @@ module Service
         # @return [Hash] эндпоинт, имя операции, счёт, порог и сработавшие правила
         def bound(binding)
           {
-            "status" => "запрос к провайдеру",
+            "status" => state(binding.role),
             "operation" => binding.operation.method_name,
             "endpoint" => binding.endpoint,
             "score" => binding.score,
             "threshold" => binding.role.threshold,
             "matched_rules" => binding.matched_rules.map(&:to_s)
           }
+        end
+
+        # Роль, принимающая уведомление, к провайдеру не ходит: её эндпоинт описывает
+        # запрос, который придёт к нам. В отчёте это разные вещи.
+        # @param role [Config::Settings::Role] роль контракта
+        # @return [String] что происходит по этому эндпоинту
+        def state(role)
+          role.trait?(:receives_callback) ? "входящее уведомление" : "запрос к провайдеру"
         end
 
         # @return [Hash] в каких единицах уходит сумма
