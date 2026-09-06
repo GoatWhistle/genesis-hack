@@ -5,9 +5,7 @@ require "time"
 
 module Adapter
   module S3
-    # Подпись AWS Signature Version 4. Хранилище проверяет её по канонической
-    # форме запроса, поэтому здесь важен каждый пробел: порядок заголовков,
-    # порядок параметров и то, что подписанный путь совпадает с отправленным.
+    # Подпись AWS Signature Version 4: порядок заголовков и параметров значим.
     class Signature
       ALGORITHM = "AWS4-HMAC-SHA256"
       TERMINATOR = "aws4_request"
@@ -24,7 +22,7 @@ module Adapter
         @service = service
       end
 
-      # Ставит на запрос заголовки подписи.
+      # Добавляет к запросу заголовки подписи.
       # @param request [Net::HTTPRequest] запрос, который уйдёт как есть
       # @param host [String] хост с портом — он же в заголовке Host
       # @param path [String] путь ровно в том виде, в каком он отправляется
@@ -68,8 +66,7 @@ module Adapter
         [ALGORITHM, stamp, scope, OpenSSL::Digest::SHA256.hexdigest(canonical)].join("\n")
       end
 
-      # Ключ подписи выводится цепочкой: секрет → дата → регион → сервис. Так
-      # утёкший ключ дня не даёт подписывать запросы в другой день или регион.
+      # Ключ подписи: секрет → дата → регион → сервис.
       # @param date [String] ГГГГММДД
       # @return [String]
       def signing_key(date)

@@ -1,9 +1,7 @@
 # frozen_string_literal: true
 
-# Сервис собран инструментом rsocket по описанию OpenAPI под контракт
-# <%= contract %>. Правила разбора живут в app/config/rules/contracts/<%= contract %>/,
-# решения по каждой роли — в mapping.yml рядом с этим файлом. Правки здесь затрёт
-# следующий прогон.
+# Сервис собран rsocket по описанию OpenAPI под контракт <%= contract %>.
+# Решения по ролям — в mapping.yml рядом. Правки затрёт следующий прогон.
 
 require "json"
 require "net/http"
@@ -18,8 +16,7 @@ class Provider
     READ_TIMEOUT = <%= http.fetch(:read_timeout) %>
     USER_AGENT = "<%= http.fetch(:user_agent) %>"
 
-    # Состояния провайдера в терминах контракта. Ключи в нижнем регистре: часть
-    # провайдеров пишет состояния капсом.
+    # Состояния провайдера в терминах контракта; ключи в нижнем регистре.
     STATUS_MAP = {
       <%= status_entries.map { |token, contract| "\"#{token}\" => \"#{contract}\"" }.join(",\n      ") %>
     }.freeze
@@ -54,7 +51,7 @@ class Provider
     SIGNATURE_ALGORITHM = "<%= callback.signature_algorithm %>"
 <% end -%>
 
-    # Ответ провайдера: код, разобранное тело и причина, если до провайдера не дошли.
+    # Ответ провайдера; error заполнен, если до него не дошли.
     Response = Struct.new(:code, :body, :error) do
       # @return [Boolean] ответ дошёл и провайдер не отказал
       def success? = error.nil? && code.between?(200, 299)
@@ -125,8 +122,7 @@ class Provider
       end
     end
 <% else -%>
-    # Webhook в описании провайдера не найден: <%= binding_for(:process_callback).explanation %>.
-    # Состояние узнаётся опросом fetch_status.
+    # Webhook не найден: <%= binding_for(:process_callback).explanation %>.
     # @param _payload [Hash] тело уведомления, читать его нечем
     # @return [Result] failure: провайдер не описывает webhook
     def process_callback(_payload)
@@ -159,7 +155,7 @@ class Provider
 
     private
 
-    # Один запрос к провайдеру: адрес, авторизация, JSON туда и обратно.
+    # Один запрос: адрес, авторизация, JSON туда и обратно.
     # @param http_method [Symbol] :get, :post и так далее
     # @param path [String] адрес с уже подставленными параметрами
     # @param body [Hash, nil] тело запроса
@@ -199,8 +195,7 @@ class Provider
       message
     end
 
-    # Сеть до провайдера не дошла — это не ответ с кодом ошибки, и повторять такое
-    # безопасно: запрос подписан ключом идемпотентности либо ничего не изменил.
+    # До провайдера не дошли: он ничего не изменил, повтор безопасен.
     # @param uri [URI] адрес запроса
     # @param message [Net::HTTPRequest] подписанный запрос
     # @return [Response] с причиной в error, если до провайдера не дошли
@@ -240,8 +235,7 @@ class Provider
       store[name.to_s] || store[name.to_sym] || ENV.fetch("#{ENV_PREFIX}_#{name.to_s.upcase}", nil)
     end
 
-    # Пустое тело у 204 — обычное дело, а нераспознанное отдаём как есть: по нему
-    # видно, что провайдер ответил не тем, чем обещал в описании.
+    # Пустое тело у 204 — норма; нераспознанное отдаём как есть под ключом raw.
     # @param raw [String, nil] тело ответа как есть
     # @return [Hash] разобранное тело; нераспознанное лежит под ключом "raw"
     def parse_body(raw)
@@ -253,8 +247,7 @@ class Provider
     end
 <% if body?(:create_request) -%>
 
-    # Тело запроса на создание. Имена полей — как у провайдера: тело уходит в JSON
-    # без переименований.
+    # Тело запроса; имена полей — как у провайдера.
     # @param operation [Operation] операция заказчика
     # @return [Hash] тело запроса
     def create_request_body(operation)
@@ -291,8 +284,7 @@ class Provider
       <%= amount_expression %>
     end
 
-    # Реквизиты получателя лежат в payout_requisite; часть провайдеров группирует
-    # их по способу выплаты — тогда заглядываем и во вложенный раздел.
+    # Реквизиты лежат в payout_requisite, иногда сгруппированы по способу выплаты.
     # @param operation [Operation] операция заказчика
     # @param key [String] имя реквизита у провайдера
     # @return [Object, nil] значение реквизита
@@ -340,9 +332,8 @@ class Provider
 <% end -%>
 <% if signature? -%>
 
-    # Подпись: <%= callback.signature_algorithm.upcase %> от тела запроса.
-    # Заголовки ожидаются в payload["headers"] — если в вашем контроллере это
-    # не так, поправьте два метода ниже, остальное трогать не нужно.
+    # Подпись: <%= callback.signature_algorithm.upcase %> от тела. Заголовки ожидаются в
+    # payload["headers"]; если у вас иначе — поправьте два метода ниже.
     # @param payload [Hash] тело уведомления вместе с заголовками
     # @return [Boolean] подпись сходится или проверять её нечем
     def valid_signature?(payload)
@@ -369,8 +360,7 @@ class Provider
     end
 <% end -%>
 
-    # Тело ответа и тело webhook — обычные хеши: имена полей провайдер задал сам,
-    # поэтому ключи не переименовываем, но принимаем и символы.
+    # Ключи не переименовываем, но принимаем и символы.
     # @param body [Hash, nil] тело ответа или уведомления
     # @param path [Array<String>] путь до значения
     # @return [Object, nil] значение по пути

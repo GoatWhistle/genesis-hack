@@ -3,21 +3,18 @@
 module Service
   module AdapterBuilder
     module Analysis
-      # Сборка тела запроса: свойство схемы провайдера → выражение на Ruby, которым
-      # обёртка его заполняет. Соответствия задаёт словарь в конфиге, поэтому новое
-      # название поля добавляется правкой одной строки, а не кодом.
+      # Сборка тела запроса: свойству схемы сопоставляется выражение из словаря.
       class PayloadBuilder
         Field = Struct.new(:name, :source, :required, :children, :matched, keyword_init: true) do
-          # @return [Boolean] у поля нет вложенных — печатается значением, а не хешем
+          # @return [Boolean] поле без вложенных: печатается значением, а не хешем
           def leaf?
             children.nil?
           end
         end
 
-        # Где мы находимся в схеме: путь от корня, остаток глубины и словарь, по
-        # которому на этом уровне ищутся соответствия.
+        # Положение в схеме: путь от корня, текущая глубина и словарь, применяемый на этом уровне.
         Position = Struct.new(:path, :depth, :dictionary, keyword_init: true) do
-          # @param name [String] свойство, в которое спускаемся
+          # @param name [String] свойство, в которое выполняется переход
           # @param dictionary [Array<Hash>] словарь для вложенного уровня
           # @return [Position]
           def deeper(name, dictionary)
@@ -34,7 +31,7 @@ module Service
           @rules = rules
         end
 
-        # @param operation [Models::ApiOperation, nil] операция, тело которой собираем
+        # @param operation [Models::ApiOperation, nil] операция, тело запроса которой собирается
         # @return [Result] поля тела, заголовки запроса и предупреждения
         def call(operation:)
           return Result.new(fields: [], headers: {}, warnings: []) if operation.nil?
@@ -48,7 +45,7 @@ module Service
         private
 
         # @param schema [Hash, nil] схема объекта
-        # @param position [Position] где мы в схеме
+        # @param position [Position] положение в схеме
         # @return [Array<Field>] поля этого уровня
         def walk(schema, position)
           properties = schema.is_a?(Hash) ? schema[:properties] : nil
@@ -64,7 +61,7 @@ module Service
         # @param property [Hash] его схема
         # @param position [Position]
         # @param required [Boolean] объявлено ли свойство обязательным
-        # @return [Field, nil] nil, если поле необязательное и заполнить его нечем
+        # @return [Field, nil] nil, если поле необязательное и источник не найден
         def build(name, property, position, required)
           entry = @rules.field_for(position.dictionary, name)
           return nested(name, property, entry, position, required) if nest?(property, position)
@@ -75,7 +72,7 @@ module Service
 
         # @param property [Hash]
         # @param position [Position]
-        # @return [Boolean] спускаться ли внутрь: глубже MAX_DEPTH не идём
+        # @return [Boolean] выполнять ли переход внутрь; глубже MAX_DEPTH разбор не идёт
         def nest?(property, position)
           object?(property) && position.depth < MAX_DEPTH
         end
@@ -95,7 +92,7 @@ module Service
         # @param entry [Hash, nil] запись словаря для самого объекта
         # @param position [Position]
         # @param required [Boolean]
-        # @return [Field, nil] объект без узнанных детей считается незаполненным
+        # @return [Field, nil] объект без распознанных свойств считается незаполненным
         def nested(name, property, entry, position, required)
           inner = position.deeper(name, dictionary_for(entry))
           children = walk(property, inner)
@@ -105,17 +102,16 @@ module Service
           Field.new(name: name, required: required, children: children, matched: entry&.dig(:field))
         end
 
-        # Деньги разбираем тем же словарём, что и всё тело, получателя — словарём
-        # реквизитов: там другие имена и другой источник данных.
-        # @param entry [Hash, nil] запись словаря для объекта, в который спускаемся
-        # @return [Array<Hash>] словарь для его свойств
+        # Получатель разбирается словарём реквизитов, остальное — словарём тела.
+        # @param entry [Hash, nil] запись словаря для объекта перехода
+        # @return [Array<Hash>] словарь для свойств этого объекта
         def dictionary_for(entry)
           return @rules.requisite_fields if entry.nil? || entry[:field].to_s == "recipient"
 
           @rules.payload_fields
         end
 
-        # Поле, собранное из oneOf: взят первый вариант, и человек должен это проверить.
+        # Поле, собранное из oneOf: взят первый вариант, случай требует ручной проверки.
         # @param property [Hash]
         # @param path [Array<String>]
         # @return [void]
@@ -130,7 +126,7 @@ module Service
         # @param path [Array<String>]
         # @param required [Boolean]
         # @param entry [Hash, nil]
-        # @return [Field, nil] обязательное поле печатается с TODO, необязательное опускается
+        # @return [Field, nil] обязательное поле печатается с TODO, необязательное не печатается
         def unmatched(name, path, required, entry)
           return nil unless required
 
@@ -138,8 +134,7 @@ module Service
           Field.new(name: name, source: nil, required: true, matched: entry&.dig(:field))
         end
 
-        # У поля с перечислением подставляем первое значение как запасное: провайдер
-        # принимает только их, а в операции заказчика такого поля может не быть.
+        # У поля с enum первое значение идёт запасным.
         # @param entry [Hash] запись словаря
         # @param property [Hash] схема свойства
         # @return [String] выражение на Ruby
@@ -158,12 +153,9 @@ module Service
           property[:type].to_s == "object" || property[:properties].is_a?(Hash)
         end
 
-        # Заголовки запроса: провайдер называет их по-разному, правила узнают их вид
-        # (идемпотентность, подпись), а контракт говорит, чем такой вид заполнять.
-        # Заголовок неизвестного вида или вида без выражения пропускаем: остальное
-        # либо ставит транспорт, либо относится к авторизации.
+        # Заголовки: правила узнают вид (идемпотентность, подпись), контракт даёт выражение.
         # @param operation [Models::ApiOperation]
-        # @return [Hash{String => String}] имя заголовка как у провайдера → выражение
+        # @return [Hash{String => String}] имя заголовка у провайдера → выражение
         def headers(operation)
           operation.header_parameters.filter_map do |parameter|
             source = @rules.header_source(@rules.header_kind(parameter[:name]))

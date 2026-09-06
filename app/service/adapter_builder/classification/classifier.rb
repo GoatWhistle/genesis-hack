@@ -3,9 +3,7 @@
 module Service
   module AdapterBuilder
     module Classification
-      # Раздача ролей контракта операциям провайдера. Роли разбираются в порядке из
-      # конфига, занятая операция в следующих ролях не участвует: иначе статус-запрос
-      # и создание выплаты дрались бы за один и тот же эндпоинт.
+      # Раздача ролей: занятая операция в следующих ролях не участвует.
       class Classifier
         Candidate = Struct.new(:operation, :score, :matched_rules, keyword_init: true)
 
@@ -14,7 +12,7 @@ module Service
           @rules = rules
         end
 
-        # Раздаёт роли: каждой — лучшая из свободных операций.
+        # Назначает каждой роли операцию с наибольшим счётом среди свободных.
         # @param operations [Array<Models::ApiOperation>] все операции описания
         # @return [Hash{Symbol => Models::RoleBinding}] роль → привязка, включая заглушки
         def call(operations)
@@ -30,7 +28,7 @@ module Service
 
         # @param role [Config::Settings::Role]
         # @param available [Array<Models::ApiOperation>] операции, ещё не занятые другими ролями
-        # @return [Models::RoleBinding] пустая привязка, если победителя нет или он ниже порога
+        # @return [Models::RoleBinding] пустая привязка, если кандидатов нет или лучший ниже порога
         def bind(role, available)
           best = rank(role, available).first
           return unbound(role, "ни одна операция описания не подошла") if best.nil?
@@ -41,22 +39,21 @@ module Service
         end
 
         # @param role [Config::Settings::Role]
-        # @param reason [String] почему роль осталась незанятой — уйдёт в отчёт и в код
+        # @param reason [String] почему роль не занята; попадает в отчёт и в код
         # @return [Models::RoleBinding]
         def unbound(role, reason)
           Models::RoleBinding.new(role: role, reason: reason)
         end
 
         # @param role [Config::Settings::Role]
-        # @param best [Candidate] лучший кандидат, которого не хватило
+        # @param best [Candidate] лучший кандидат, не набравший порога
         # @return [String]
         def below_threshold(role, best)
           "лучший кандидат #{best.operation.method_name} набрал #{best.score} " \
             "при пороге #{role.threshold}"
         end
 
-        # Кандидаты по убыванию счёта; при равенстве выигрывает более раннее
-        # объявление в описании API — так результат не зависит от порядка хеша.
+        # Кандидаты по убыванию счёта; при равенстве побеждает объявленный раньше.
         # @param role [Config::Settings::Role]
         # @param available [Array<Models::ApiOperation>]
         # @return [Array<Candidate>]
@@ -69,7 +66,7 @@ module Service
 
         # @param role [Config::Settings::Role]
         # @param operation [Models::ApiOperation]
-        # @param position [Integer] номер операции в описании — им разрешаются ничьи
+        # @param position [Integer] номер операции в описании, используется при равенстве счёта
         # @return [Array(Candidate, Integer), nil] nil, если сработало veto
         def score(role, operation, position)
           result = role.score(operation)

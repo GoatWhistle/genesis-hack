@@ -4,12 +4,9 @@ require "yaml"
 require "pathname"
 
 module Config
-  # Импорт конфигурации: общие правила распознавания плюс профиль контракта →
-  # Settings. Профиль решает, под какой интерфейс собирается класс: как называются
-  # роли, какими словами говорит контракт и по какому шаблону печатается результат.
+  # Импорт конфигурации: правила распознавания и профиль контракта → Settings.
   class Importer
-    # Сколько ролей может нести признак: на создающей операцию завязаны тело
-    # запроса, лимиты и авторизация, на принимающей webhook — разбор колбэка.
+    # Допустимое число ролей с признаком.
     CARDINALITY = {
       creates_operation: [1..1, "ровно одна роль"],
       receives_callback: [0..1, "не больше одной роли"]
@@ -28,7 +25,7 @@ module Config
       @catalog = catalog
     end
 
-    # Читает оба файла и собирает правила разбора.
+    # Читает оба файла и формирует правила разбора.
     # @return [Settings]
     # @raise [ArgumentError] профиля нет, файла нет или признак роли неизвестен
     # @raise [KeyError] в конфиге не хватает обязательной секции
@@ -44,24 +41,23 @@ module Config
 
     private
 
-    # @param content [String] содержимое конфига из хранилища
+    # @param content [String] содержимое файла конфигурации из хранилища
     # @return [Hash] разобранный YAML, ключи символами
     def parse(content)
       YAML.safe_load(content, aliases: true, symbolize_names: true)
     end
 
     # @param contract [Hash] разобранный contract.yml
-    # @return [Settings::Contract] чем контракт представляется наружу
+    # @return [Settings::Contract] внешнее представление контракта
     def meta(contract)
       section = contract.fetch(:contract)
       Settings::Contract.new(
         name: @name, title: section.fetch(:title), class_suffix: section.fetch(:class_suffix),
-        outputs: outputs(section.fetch(:outputs))
+        outputs: outputs(section.fetch(:outputs)), probe: probe(section[:probe])
       )
     end
 
-    # Шаблоны читаются здесь же: печатать всё равно придётся все, а хранилище
-    # может быть удалённым — лучше сходить в него один раз при загрузке правил.
+    # Шаблоны читаются здесь: хранилище может быть удалённым.
     # @param entries [Array<Hash>] записи { template:, file: }
     # @return [Array<Settings::Output>] имя файла шаблона, имя результата и сам шаблон
     def outputs(entries)
@@ -70,6 +66,13 @@ module Config
         Settings::Output.new(template_name: name, file: entry.fetch(:file),
                              template: @catalog.template(@name, name))
       end
+    end
+
+    # Проба читается вместе с шаблонами: к моменту проверки хранилище недоступно.
+    # @param file [String, nil] имя файла пробы из описания контракта
+    # @return [String, nil] исходник пробы; nil, если профиль её не содержит
+    def probe(file)
+      file && @catalog.template(@name, file)
     end
 
     # @param base [Hash] разобранный base.yml
@@ -95,10 +98,9 @@ module Config
       end
     end
 
-    # Правила архетипа дополняются правилами самой роли: контракт может добавить
-    # признак, не переписывая общий архетип и не мешая другим контрактам.
+    # Правила роли дополняют архетип, а не заменяют его.
     # @param name [Symbol] имя роли, оно же имя метода контракта
-    # @param body [Hash] описание роли: title, archetype, traits и, если нужно, rules/veto
+    # @param body [Hash] описание роли: title, archetype, traits и, при необходимости, rules/veto
     # @param archetypes [Hash]
     # @param thresholds [Hash]
     # @return [Settings::Role]
@@ -116,7 +118,7 @@ module Config
     # @param body [Hash]
     # @param archetypes [Hash]
     # @return [Hash] архетип операции
-    # @raise [ArgumentError] роль ссылается на архетип, которого нет в base.yml
+    # @raise [ArgumentError] роль ссылается на архетип, отсутствующий в base.yml
     def archetype_for(name, body, archetypes)
       key = body.fetch(:archetype).to_sym
       archetypes.fetch(key) do
@@ -144,8 +146,7 @@ module Config
                            "Известны: #{Settings::Role::TRAITS.join(", ")}"
     end
 
-    # На роли, создающей операцию, завязаны тело запроса, лимиты и авторизация, а
-    # на принимающей webhook — весь разбор колбэка. Двух таких быть не может.
+    # На этих ролях основан весь дальнейший разбор, поэтому их число ограничено.
     # @param roles [Hash{Symbol => Settings::Role}]
     # @return [Hash{Symbol => Settings::Role}] те же роли
     # @raise [ArgumentError] признак назначен не тому числу ролей

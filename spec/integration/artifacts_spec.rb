@@ -2,16 +2,14 @@
 
 require "json"
 
-# Одна сборка отдаёт три файла: сервис, инструкцию по подключению и тестовые
-# материалы. Проверяем не текст целиком, а то, что в них попало из описания.
+# Одна сборка отдаёт три файла; проверяем состав, а не текст целиком.
 RSpec.describe "выходные файлы сборки" do
   subject(:result) { build_service("novapay") }
 
   let(:fixtures) { JSON.parse(result.files.fetch("fixtures.json")) }
   let(:guide) { result.files.fetch("INTEGRATION.md") }
 
-  # Отчёт о разборе — такой же результат сборки, как и остальные файлы, и уходит
-  # тем же путём: в каталог, в бакет или в ответ HTTP.
+  # Отчёт уходит тем же путём, что и остальные файлы.
   it "печатает набор файлов профиля и кладёт рядом отчёт" do
     expect(result.files.keys)
       .to eq(%w[novapay_service.rb INTEGRATION.md fixtures.json mapping.yml])
@@ -59,7 +57,7 @@ RSpec.describe "выходные файлы сборки" do
     end
 
     describe "когда провайдер не описывает уведомления" do
-      subject(:result) { build_service("plainpay") }
+      subject(:result) { build_service("swiftpay") }
 
       it "оставляет раздел пустым, а не выдумывает примеры" do
         expect(fixtures.fetch("callbacks")).to be_empty

@@ -3,9 +3,7 @@
 module Service
   module AdapterBuilder
     module Analysis
-      # HTTP-коды операций → коды ошибок контракта и действия. Берём и то, что
-      # описал провайдер, и общий словарь: провайдер редко перечисляет 5xx, но
-      # получить их обёртка обязана.
+      # HTTP-коды → коды ошибок контракта; сверх описанных берётся общий словарь.
       class ErrorMapper
         # @param rules [Ports::Rules] словарь кодов ошибок
         def initialize(rules)

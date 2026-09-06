@@ -5,14 +5,16 @@ OUT      ?= output
 HOST     ?= 127.0.0.1
 PORT     ?= 9292
 STORAGE  ?= local
+CLASSIFIER ?= rules
 EXAMPLES ?= novapay kassabox nordbank swiftpay
+KINDS    ?=
 
 BUNDLE  := bundle exec
 RSOCKET := $(BUNDLE) bin/rsocket
 
 .DEFAULT_GOAL := help
 .PHONY: help install check test lint lint-fix build examples doctor contracts \
-        serve rackup request up down logs push clean
+        serve rackup request up down logs push clean bench specs
 
 help: ## показать этот список
 	@echo "Команды:"
@@ -21,6 +23,7 @@ help: ## показать этот список
 	@echo ""
 	@echo "Переменные: PROVIDER=$(PROVIDER) SPEC=$(SPEC) CONTRACT=$(CONTRACT)"
 	@echo "            OUT=$(OUT) HOST=$(HOST) PORT=$(PORT) STORAGE=$(STORAGE)"
+	@echo "            CLASSIFIER=$(CLASSIFIER)"
 
 install: ## поставить гемы
 	bundle install
@@ -36,9 +39,15 @@ lint: ## прогнать линтер
 lint-fix: ## поправить то, что линтер умеет править сам
 	$(BUNDLE) rubocop --autocorrect
 
-build: ## собрать интеграцию: make build PROVIDER=novapay [SPEC=... CONTRACT=...]
+build: ## собрать интеграцию: make build PROVIDER=novapay [SPEC=... CONTRACT=... CLASSIFIER=...]
 	$(RSOCKET) build --spec $(SPEC) --provider $(PROVIDER) \
-		--contract $(CONTRACT) --out $(OUT)
+		--contract $(CONTRACT) --out $(OUT) --classifier $(CLASSIFIER)
+
+specs: ## скачать описания чужих провайдеров в bench/specs/ (см. bench/specs/SOURCES.md)
+	bench/fetch_specs.sh
+
+bench: ## замерить три способа раздачи ролей: make bench [KINDS="rules llm"]
+	$(BUNDLE) ruby bench/classifiers.rb $(KINDS)
 
 examples: ## собрать все примеры из examples/
 	@for provider in $(EXAMPLES); do \

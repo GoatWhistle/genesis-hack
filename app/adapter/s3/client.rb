@@ -5,17 +5,12 @@ require "net/http"
 require "uri"
 
 module Adapter
-  # Минимальный клиент S3 на стандартной библиотеке: четыре операции, которые нам
-  # нужны, и подпись AWS Signature Version 4. Готового SDK не берём намеренно —
-  # он тянет за собой десятки гемов ради GET, PUT, HEAD и списка объектов.
-  #
-  # Адресация путевая (endpoint/bucket/key), поэтому клиент одинаково работает и с
-  # настоящим S3, и с MinIO, и с любым совместимым хранилищем.
+  # Клиент S3: GET, PUT, HEAD, список объектов, подпись SigV4. Годится и для MinIO.
   module S3
     class Client
       CONTENT_TYPE = "application/octet-stream"
 
-      # Хранилище ответило не тем, чего мы ждали.
+      # Ответ хранилища не соответствует ожидаемому.
       class Error < StandardError; end
 
       # @param endpoint [String] адрес хранилища, например http://minio:9000
@@ -65,8 +60,7 @@ module Adapter
         send_request(Net::HTTP::Head, path_for(key)).code.start_with?("2")
       end
 
-      # Список ключей целиком: хранилище отдаёт его страницами, и без склейки
-      # правила из большого бакета выглядели бы наполовину пропавшими.
+      # Хранилище отдаёт ключи страницами; без склейки список будет неполным.
       # @param prefix [String]
       # @return [Array<String>] ключи по возрастанию
       def list(prefix = "")

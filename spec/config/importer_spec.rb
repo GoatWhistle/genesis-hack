@@ -1,5 +1,7 @@
 # frozen_string_literal: true
 
+require "fileutils"
+
 RSpec.describe Config::Importer do
   subject(:settings) { described_class.call }
 
@@ -12,9 +14,10 @@ RSpec.describe Config::Importer do
     expect(settings.role(:create_request).rules).to all(have_attributes(pattern: a_kind_of(Regexp)))
   end
 
-  it "даёт создание выплаты порог выше общего" do
-    expect(settings.role(:create_request).threshold)
-      .to be > settings.role(:cancel_request).threshold
+  it "даёт ролям, где ошибка дороже, порог выше общего" do
+    expect([settings.role(:create_request), settings.role(:fetch_status),
+            settings.role(:cancel_request)].map(&:threshold))
+      .to all(be > settings.role(:process_callback).threshold)
   end
 
   it "требует обязательные роли" do
@@ -60,6 +63,24 @@ RSpec.describe Config::Importer do
     end
   end
 
+  # Пустая секция conditions значит «не проверять», а не ошибку загрузки.
+  describe "когда контракт не описывает предпроверок" do
+    subject(:settings) { described_class.new("space_payments", catalog: catalog).call }
+
+    let(:directory) { Pathname.new(Dir.mktmpdir) }
+    let(:catalog) { Config::Catalog.new(store: Repositories::Rules::Local.new(root: directory)) }
+
+    before do
+      FileUtils.cp_r(Pathname.new("app/config/rules").children, directory)
+      contract = directory.join("contracts", "space_payments", "contract.yml")
+      contract.write(contract.read.sub(/^conditions:\n(  .*\n)+/, "conditions:\n"))
+    end
+
+    it "загружается и не проверяет ничего" do
+      expect(settings.condition(:min_amount)).to be_nil
+    end
+  end
+
   describe "когда контракт описан с ошибкой" do
     subject(:import) { described_class.new("broken", catalog: catalog).call }
 
@@ -67,8 +88,7 @@ RSpec.describe Config::Importer do
     let(:catalog) { Config::Catalog.new(store: Repositories::Rules::Local.new(root: directory)) }
     let(:contract) { directory.join("contracts", "broken", "contract.yml") }
 
-    # Профиль подкладываем во временное хранилище целиком: правила распознавания
-    # общие, ломаем только описание контракта.
+    # Профиль кладём во временное хранилище: ломаем только описание контракта.
     before do
       contract.dirname.mkpath
       contract.write(Pathname.new("app/config/rules/contracts/space_payments/contract.yml")

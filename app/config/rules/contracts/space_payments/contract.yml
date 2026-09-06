@@ -1,15 +1,12 @@
-# Контракт заказчика Space Payments: класс наследуется от Provider::BaseService,
-# отвечает Result-объектами через success/failure и читает операцию заказчика.
-#
-# Всё, что зависит от этого контракта, лежит здесь: имена ролей (они же имена
-# методов), словарь статусов, коды ошибок и выражения на Ruby, которыми обёртка
-# достаёт данные. Распознавание чужого API — в app/config/rules/base.yml, общее для всех
-# контрактов.
+# Контракт Space Payments: класс наследует Provider::BaseService и отвечает
+# Result-объектами. Распознавание чужого API — в base.yml.
 
 contract:
   title: контракт Space Payments (Provider::BaseService)
   class_suffix: Service
-  # Что выдаём на одну сборку. Порядок важен: первый файл считается главным.
+  # Чем проверяется собранный класс: вызов ролей знает только проба.
+  probe: probe.rb
+  # Выходные файлы; первый считается главным.
   outputs:
     - { template: service.rb.erb, file: "%<provider>s_service.rb" }
     - { template: integration.md.erb, file: INTEGRATION.md }
@@ -29,7 +26,12 @@ classification:
   required: [create_request, fetch_status]
   thresholds:
     default: 8
-    create_request: 10
+    # 13, а не 10: «create чего-нибудь» без слова о выплате набирает ровно 12.
+    create_request: 13
+    # Тем же порядком, что и у создания: GET по идентификатору есть в любом
+    # описании и сам по себе роль не заслуживает.
+    fetch_status: 14
+    cancel_request: 14
   # Чьи ответы описывают состояния операции, в порядке доверия: у статус-запроса
   # перечисление полнее всего, ответ на создание — подстраховка.
   status_sources: [fetch_status, create_request, process_callback]
@@ -74,9 +76,7 @@ errors:
     unavailable: { code: provider_unavailable, action: retry, symbol: service_unavailable }
     timeout: { code: provider_timeout, action: retry, symbol: gateway_timeout }
 
-# Чем обёртка заполняет узнанное поле. Имя поля — из base.yml, выражение — отсюда.
-# Поле без выражения считается незаполненным: обязательное напечатается с TODO,
-# необязательное будет опущено.
+# Имя поля — из base.yml, выражение — отсюда; без выражения поле не заполняется.
 sources:
   payload:
     amount: 'provider_amount(operation)'

@@ -2,9 +2,7 @@
 
 module Repositories
   module Rules
-    # Хранилище правил: плоский набор именованных файлов. Ключ — путь вида
-    # "base.yml" или "contracts/space_payments/contract.yml"; что за ним стоит —
-    # каталог на диске или объект в бакете — знает только реализация.
+    # Хранилище правил: набор файлов по ключу вида contracts/<профиль>/contract.yml.
     module Store
       # @param _key [String]
       # @return [String] содержимое
@@ -24,7 +22,7 @@ module Repositories
       # @return [Boolean]
       def exist?(_key) = raise(NotImplementedError, "#{self.class}#exist?")
 
-      # Проверка, что объект действительно хранилище правил.
+      # Проверка, что объект реализует порт хранилища правил.
       # @param candidate [Object]
       # @return [Object] тот же объект
       # @raise [ArgumentError] объект не отвечает на часть методов
@@ -36,9 +34,7 @@ module Repositories
       end
     end
 
-    # Ключи приходят в том числе снаружи — из HTTP-запроса, — поэтому прежде чем
-    # превратить ключ в путь или в имя объекта, его надо проверить. Иначе
-    # «../../etc/passwd» уедет за пределы хранилища.
+    # Ключ приходит снаружи, поэтому проверяется: «../../etc/passwd» выйдет за пределы хранилища.
     module Key
       ALLOWED = %r{\A[A-Za-z0-9][A-Za-z0-9._/-]*\z}
       TRAVERSAL = %r{(\A|/)\.\.(/|\z)}

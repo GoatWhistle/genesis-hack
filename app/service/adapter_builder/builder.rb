@@ -2,16 +2,14 @@
 
 module Service
   module AdapterBuilder
-    # Сценарий целиком: описание API → роли → класс, который сам ходит к провайдеру.
-    # Всё внешнее приходит через порты, поэтому сценарий одинаково работает и с
-    # файлом на диске, и с подставным источником в тестах.
+    # Сценарий сборки: описание API → роли → класс, обращающийся к провайдеру.
     class Builder
-      # Отчёт лежит рядом с напечатанными файлами: он такой же результат сборки.
+      # Отчёт входит в результат сборки наравне с напечатанными файлами.
       REPORT = "mapping.yml"
 
-      # Итог сборки: разбор, напечатанные файлы и отчёт.
-      Result = Struct.new(:blueprint, :files, :report, keyword_init: true) do
-        # Главный файл профиля — первый в его списке выходных файлов.
+      # Результат сборки; checks равен nil, если проверка не выполнялась.
+      Result = Struct.new(:blueprint, :files, :report, :checks, keyword_init: true) do
+        # Основной файл профиля — первый в списке выходных файлов.
         # @return [String] исходник сгенерированного класса
         def source = files.values.first
 
@@ -19,42 +17,65 @@ module Service
         def source_name = files.keys.first
       end
 
-      # @param spec_source [Ports::SpecSource] чем читаем описание API
-      # @param renderer [Ports::Renderer] чем печатаем класс
+      # @param spec_source [Ports::SpecSource] источник описания API
+      # @param renderer [Ports::Renderer] печать выходных файлов
       # @param rules [Ports::Rules] правила разбора, обычно Config::Settings
-      # @raise [ArgumentError] объект правил не реализует порт
-      def initialize(spec_source:, renderer:, rules:)
+      # @param classifier [Ports::Classifier, nil] распределение ролей; по умолчанию —
+      #   правила с весами из конфигурации, единственная реализация без внешних вызовов
+      # @param tester [Ports::Tester, nil] проверка собранного класса; nil — сборка
+      #   завершается печатью файлов
+      # @raise [ArgumentError] объект правил, классификатора или проверки не реализует порт
+      def initialize(spec_source:, renderer:, rules:, classifier: nil, tester: nil)
         @spec_source = spec_source
         @renderer = renderer
         @rules = Ports::Rules.assert!(rules)
+        @classifier = Ports::Classifier.assert!(classifier || Classification::Classifier.new(rules))
+        @tester = tester && Ports::Tester.assert!(tester)
       end
 
-      # Собирает сервис целиком.
-      # @param reference [String, Pathname] чем адресуется описание API
+      # Выполняет сборку целиком.
+      # @param reference [String, Pathname] адрес описания API
       # @param provider [String] имя провайдера, например novapay
-      # @return [Result] blueprint, напечатанные файлы и отчёт
+      # @return [Result] blueprint, напечатанные файлы, отчёт и проверка
       # @raise [RuntimeError] не распознаны обязательные роли
       def call(reference:, provider:)
-        names = Naming.new(provider, @rules.contract)
         spec = Parsing::SpecParser.new(@spec_source.read(reference)).call
-        bindings = classify(spec.operations)
-        blueprint = Analysis::BlueprintFactory.new(@rules)
-                                              .call(spec: spec, names: names, bindings: bindings)
-
-        report = Rendering::Report.new(blueprint, spec, reference)
-        Result.new(blueprint: blueprint, report: report.to_h,
-                   files: @renderer.call(blueprint).merge(REPORT => report.to_yaml))
+        blueprint = Analysis::BlueprintFactory.new(@rules).call(
+          spec: spec, names: Naming.new(provider, @rules.contract),
+          bindings: classify(spec.operations)
+        )
+        result(blueprint, spec, reference)
       end
 
       private
 
-      # Роли раздаёт классификатор, а сценарий следит, чтобы без обязательных
-      # ролей сборка не продолжалась молча.
+      # Печать, проверка напечатанного и запись итога в отчёт.
+      # @param blueprint [Models::Blueprint]
+      # @param spec [Models::ApiSpec] разобранное описание
+      # @param reference [String, Pathname] откуда описание взято
+      # @return [Result]
+      def result(blueprint, spec, reference)
+        files = @renderer.call(blueprint)
+        checks = verify(files, blueprint)
+        report = Rendering::Report.new(blueprint, spec, reference, checks: checks)
+        Result.new(blueprint: blueprint, report: report.to_h, checks: checks,
+                   files: files.merge(REPORT => report.to_yaml))
+      end
+
+      # Последняя ступень: класс вызывается на своих фикстурах, итог идёт в отчёт.
+      # @param files [Hash{String => String}] напечатанные файлы
+      # @param blueprint [Models::Blueprint]
+      # @return [Testing::Report, nil] nil, если проверять некому
+      def verify(files, blueprint)
+        @tester&.call(source: files.values.first, blueprint: blueprint)
+      end
+
+      # Без обязательной роли сборка прерывается.
       # @param operations [Array<Models::ApiOperation>]
       # @return [Hash{Symbol => Models::RoleBinding}]
       # @raise [RuntimeError] осталась незанятой обязательная роль
       def classify(operations)
-        bindings = Classification::Classifier.new(@rules).call(operations)
+        bindings = @classifier.call(operations)
         stubs = bindings.values.reject(&:bound?).map(&:role_name)
         missing = stubs.select { |role| @rules.required_role?(role) }
         return bindings if missing.empty?
@@ -63,13 +84,12 @@ module Service
               "Правила распознавания — в app/config/rules/base.yml, роли — в профиле контракта"
       end
 
-      # Имена, производные от названия провайдера и профиля контракта: как назвать
-      # класс, решает контракт — один собирает сервисы, другой клиентов.
+      # Имена от названия провайдера и профиля; имя класса задаёт контракт.
       class Naming
         attr_reader :provider, :contract
 
-        # @param provider [String] имя провайдера в любом виде
-        # @param contract [Config::Settings::Contract] профиль, под который собираем
+        # @param provider [String] имя провайдера в произвольном написании
+        # @param contract [Config::Settings::Contract] профиль сборки
         # @raise [ArgumentError] после нормализации имя оказалось пустым
         def initialize(provider, contract)
           @provider = provider.to_s.downcase.gsub(/[^a-z0-9]+/, "_")
@@ -84,7 +104,7 @@ module Service
         # @return [String] префикс переменных окружения: NOVAPAY
         def env_prefix = provider.upcase
 
-        # @return [Hash{Symbol => String}] именами Blueprint — уходит прямо в его конструктор
+        # @return [Hash{Symbol => String}] поля Blueprint для его конструктора
         def to_h
           { provider: provider, contract: contract.name, class_name: class_name,
             env_prefix: env_prefix }

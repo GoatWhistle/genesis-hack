@@ -1,10 +1,7 @@
 # frozen_string_literal: true
 
 module Config
-  # Словарь контракта: чем провайдерские слова и поля становятся в готовом классе.
-  # Каждая секция собирается из двух половин — распознавание берётся из base.yml,
-  # а имена и выражения из профиля контракта. Регулярки компилируются здесь один
-  # раз, чтобы дальше никто не работал со строками.
+  # Словарь контракта: распознавание из base.yml, имена и выражения из профиля.
   class Vocabulary
     # @param base [Hash] разобранный base.yml
     # @param contract [Hash] разобранный contract.yml профиля
@@ -25,7 +22,7 @@ module Config
         callback_fields: patterns_hash(@base.fetch(:callback_fields)),
         headers: patterns_hash(@base.fetch(:headers)),
         header_sources: sources.fetch(:headers),
-        conditions: @contract.fetch(:conditions),
+        conditions: @contract.fetch(:conditions) || {},
         auth_templates: @contract.fetch(:authorization)
       )
     end
@@ -42,8 +39,7 @@ module Config
       }
     end
 
-    # Контракт называет статус своим словом и ссылается на группу состояний из
-    # base.yml; при желании он может задать свои шаблоны списком.
+    # Контракт ссылается на группу состояний из base.yml либо задаёт свои шаблоны.
     # @return [Hash{Symbol => Array<Regexp>}] статус контракта → чем его узнать
     def statuses
       groups = @base.fetch(:status_patterns)
@@ -52,8 +48,7 @@ module Config
       end
     end
 
-    # HTTP-код знает база, что с ним делать — контракт. Соединяем через смысл
-    # ошибки: код ответа → смысл → запись контракта.
+    # Связь идёт через смысл ошибки: код ответа → смысл → запись контракта.
     # @return [Hash] { codes: { "429" => {...} }, default: {...} }
     def errors
       section = @contract.fetch(:errors)
@@ -83,9 +78,7 @@ module Config
       end
     end
 
-    # Словарь поля: имя и регулярки — из базы, выражение — из контракта. Порядок
-    # тоже из базы: правила читаются сверху вниз, первое совпадение выигрывает.
-    # Поле, для которого контракт не назвал выражения, остаётся без источника.
+    # Имя и регулярки — из base.yml, выражение — из контракта; первое совпадение.
     # @param section [Symbol] имя секции base.yml
     # @param sources [Hash{Symbol => String}] поле контракта → выражение на Ruby
     # @return [Array<Hash>] записи { field:, patterns:, source: }
@@ -109,7 +102,7 @@ module Config
     end
 
     # @param pattern [String]
-    # @return [Regexp] без учёта регистра: провайдеры пишут статусы и капсом
+    # @return [Regexp] без учёта регистра: часть провайдеров пишет статусы в верхнем регистре
     def compile_one(pattern)
       Regexp.new(pattern, Regexp::IGNORECASE)
     end

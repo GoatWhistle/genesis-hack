@@ -1,8 +1,7 @@
 # frozen_string_literal: true
 
 module Adapter
-  # Куда уходит результат сборки. Сценарий печатает файлы в память и не знает,
-  # лягут они в каталог рядом или в бакет: за это отвечает выбранный адаптер.
+  # Хранилище результата: каталог или бакет, выбирает адаптер.
   module Upload
     module Store
       # @param _provider [String] имя провайдера — им называется раздел с результатом
@@ -10,7 +9,7 @@ module Adapter
       # @return [Array<String>] куда именно всё легло
       def store(_provider, _files) = raise(NotImplementedError, "#{self.class}#store")
 
-      # Проверка, что объект действительно умеет складывать результат.
+      # Проверка, что объект реализует порт хранилища результата.
       # @param candidate [Object]
       # @return [Object] тот же объект
       # @raise [ArgumentError] объект не отвечает на store

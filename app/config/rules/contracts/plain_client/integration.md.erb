@@ -1,13 +1,13 @@
 # <%= provider.capitalize %> — инструкция по подключению
 
 Собрано инструментом rsocket по описанию OpenAPI под <%= contract %>.
-Класс: `Payouts::<%= class_name %>`, ни от чего не наследуется.
+Класс: `Payouts::<%= class_name %>`, без наследования.
 Базовый адрес: `<%= base_url %>`.
 
 Платёж передаётся хешем, успех возвращается значением, отказ провайдера — исключением
 `ProviderError` с полями `code`, `http_code` и `retriable?`.
 
-Файл сгенерирован. Правки затрёт следующий прогон — правьте правила и пересобирайте.
+Файл сгенерирован. Изменения будут перезаписаны при следующей сборке: правьте правила и пересобирайте.
 
 ## Настройка
 
@@ -27,12 +27,13 @@
 <% if credentials.primary -%>
 - Тип: **<%= credentials.primary.kind %>** (схема `<%= credentials.primary.name %>` из описания)
 - Куда: <%= credentials.primary.location == "query" ? "параметр строки запроса" : "заголовок" %> `<%= credentials.primary.parameter %>`
-- Что нужно: <%= credentials.primary.credentials.map { |key| "`#{key}`" }.join(", ") %>
+- Требуются ключи: <%= credentials.primary.credentials.map { |key| "`#{key}`" }.join(", ") %>
 <% unless credentials.alternatives.empty? -%>
 - Провайдер также принимает: <%= credentials.alternatives.map { |scheme| "`#{scheme.name}` (#{scheme.kind})" }.join(", ") %>
 <% end -%>
 <% else -%>
-В описании провайдера нет `securitySchemes` — подпишите запрос руками в методе `authorize`.
+В описании провайдера нет `securitySchemes`: подпись запроса требуется дописать в методе
+`authorize`.
 <% end -%>
 
 ## Методы
@@ -50,17 +51,17 @@
 
 ## Состояния
 
-| Состояние провайдера | Что вернёт клиент |
+| Состояние провайдера | Возвращаемое значение |
 |---|---|
 <% status_entries.each do |token, status| -%>
 | `<%= token %>` | `:<%= status %>` |
 <% end -%>
 
-Незнакомое состояние клиент считает `:pending`.
+Нераспознанное состояние интерпретируется как `:pending`.
 <% if event_map.any? %>
 ### События уведомлений
 
-| Событие | Что вернёт клиент |
+| Событие | Возвращаемое значение |
 |---|---|
 <% event_map.each do |event, status| -%>
 | `<%= event %>` | `:<%= status %>` |
@@ -68,7 +69,7 @@
 <% end %>
 ## Ошибки
 
-Каждая строка — это `ProviderError` с таким `code`.
+Каждой строке соответствует `ProviderError` с указанным `code`.
 
 | HTTP | `error.code` | Действие | `retriable?` |
 |---|---|---|---|
@@ -76,13 +77,13 @@
 | <%= code %> | `:<%= entry.fetch(:code) %>` | <%= entry.fetch(:action) %> | <%= entry.fetch(:action).start_with?("retry") ? "да" : "нет" %> |
 <% end -%>
 
-Обрыв связи — это `ProviderError` с кодом `:transport_error`, он тоже повторяемый: до провайдера
-запрос не дошёл, значит ничего не изменил.
+Обрыв связи возвращается как `ProviderError` с кодом `:transport_error` и допускает повтор:
+запрос до провайдера не дошёл и состояние операции не изменил.
 
 ## Предпроверки
 
 <% if constraints.empty? -%>
-Ограничений в описании провайдера не нашлось.
+Ограничения в описании провайдера отсутствуют.
 <% else -%>
 `check!` поднимает `InvalidPayment` до обращения к сети:
 
@@ -93,7 +94,7 @@
 <% end -%>
 <% end -%>
 
-Сумма уходит провайдеру как `<%= amount_expression %>`<%= amount_multiplier == 1 ? "" : " — то есть в минимальных единицах" %>.
+Сумма передаётся провайдеру как `<%= amount_expression %>`<%= amount_multiplier == 1 ? "" : ", то есть в минимальных единицах" %>.
 
 ## Уведомления
 
@@ -116,20 +117,20 @@
 
 <% if signature? -%>
 Подпись: `<%= callback.signature_algorithm.upcase %>(тело, callback_secret)` → hex → заголовок
-`<%= callback.signature_header %>`. Заголовки ожидаются в `payload["headers"]`, сырое тело — в
-`payload["raw_body"]`.
+`<%= callback.signature_header %>`. Заголовки ожидаются в `payload["headers"]`, исходное тело —
+в `payload["raw_body"]`.
 <% else -%>
-Подпись в описании не найдена — проверять нечего.
+Подпись в описании не найдена, проверка не выполняется.
 <% end -%>
 <% else -%>
 Провайдер не описывает webhook: `read_callback` поднимает `NotImplementedError`, состояние
-узнаётся опросом `payout_state`.
+определяется опросом `payout_state`.
 <% end -%>
 
-## Что проверить руками
+## Требует проверки
 
 <% if warnings.empty? -%>
-Инструмент не оставил замечаний.
+Замечаний нет.
 <% else -%>
 <% warnings.each do |warning| -%>
 - <%= warning %>
@@ -138,6 +139,6 @@
 
 ## Файлы рядом
 
-- `<%= provider %>_client.rb` — сам клиент;
+- `<%= provider %>_client.rb` — клиент;
 - `fixtures.json` — примеры запросов, ответов и уведомлений;
-- `mapping.yml` — как инструмент разобрал описание: роли, счёт, сработавшие правила.
+- `mapping.yml` — разбор описания: роли, счёт, сработавшие правила.

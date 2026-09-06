@@ -3,9 +3,7 @@
 module Service
   module AdapterBuilder
     module Parsing
-      # Поиск свойства в схеме по регуляркам имени. Ответы у провайдеров бывают
-      # завёрнуты в конверт (data/meta у KassaBox), поэтому ищем в глубину и
-      # возвращаем путь целиком — по нему обёртка достанет значение через dig.
+      # Поиск свойства по регуляркам имени; ответ бывает в конверте, поэтому идём вглубь.
       class SchemaProbe
         Found = Struct.new(:path, :node, keyword_init: true) do
           # @return [Array<String>] значения enum найденного свойства
@@ -21,7 +19,7 @@ module Service
           @schema = schema || {}
         end
 
-        # Первое подходящее свойство: сначала ближе к корню, потом глубже.
+        # Первое подходящее свойство; обход от корня вглубь.
         # @param patterns [Array<Regexp>] чем узнаём имя свойства
         # @param with_enum [Boolean] брать только свойства с перечислением значений
         # @return [Found, nil]
@@ -34,7 +32,7 @@ module Service
           nil
         end
 
-        # Все свойства с перечислением значений — из них собирается карта статусов.
+        # Все свойства с перечислением значений; используются для построения карты статусов.
         # @return [Array<Found>]
         def enums
           levels = (0..MAX_DEPTH).flat_map { |depth| walk(@schema, [], depth) }
@@ -53,8 +51,7 @@ module Service
           patterns.any? { |pattern| pattern.match?(candidate.path.last) }
         end
 
-        # Все свойства ровно на заданной глубине — обход послойный, чтобы близкое к корню
-        # поле выигрывало у одноимённого вложенного.
+        # Обход послойный: поле ближе к корню выигрывает у одноимённого вложенного.
         # @param node [Hash] узел схемы
         # @param path [Array<String>] путь до узла от корня
         # @param depth [Integer] сколько уровней осталось спуститься
@@ -71,7 +68,7 @@ module Service
           end
         end
 
-        # Массив прозрачен для поиска: свойства лежат в описании его элемента.
+        # Массив при поиске пропускается: свойства находятся в описании его элемента.
         # @param node [Object]
         # @return [Hash, nil] свойства узла или nil, если их нет
         def properties_of(node)

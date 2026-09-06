@@ -74,14 +74,14 @@ RSpec.describe Service::AdapterBuilder::Rendering::Renderer do
   end
 
   describe "когда webhook не описан" do
-    subject(:source) { build_service("plainpay").source }
+    subject(:source) { build_service("swiftpay").source }
 
     it "оставляет заглушку вместо выдуманного разбора" do
       expect(source).to include('failure(:not_implemented, "provider.callback_not_supported")')
     end
 
     it "объясняет в комментарии, почему заглушка" do
-      expect(source).to include("Webhook в описании провайдера не найден")
+      expect(source).to include("Webhook не найден")
     end
 
     it "всё равно печатает метод контракта" do

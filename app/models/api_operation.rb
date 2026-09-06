@@ -1,8 +1,7 @@
 # frozen_string_literal: true
 
 module Models
-  # Одна операция из описания API, приведённая к тому виду, в котором её читают
-  # правила: ссылки $ref уже раскрыты, ответы разложены по кодам.
+  # Операция описания API: $ref раскрыты, ответы разложены по кодам.
   class ApiOperation
     attr_reader :operation_id, :http_method, :path, :summary, :description, :tags,
                 :parameters, :responses, :security
@@ -34,12 +33,11 @@ module Models
     # @return [Hash, nil] схема тела запроса
     def request_schema = @request[:schema]
 
-    # Пример тела, написанный самим провайдером: лучший материал для фикстур.
+    # Пример тела из описания провайдера; используется при построении фикстур.
     # @return [Hash, nil]
     def request_example = @request[:example]
 
-    # Короткое имя операции: snake_case от operationId, а без него — из глагола и
-    # пути. По нему операцию видно в отчёте и в правилах классификации.
+    # Имя операции: operationId в snake_case, иначе из глагола HTTP и пути.
     # @return [String]
     def method_name
       return snake_case(operation_id) if operation_id && !operation_id.empty?
@@ -47,39 +45,38 @@ module Models
       "#{http_method}_#{path.gsub(/[{}]/, "").split("/").reject(&:empty?).join("_")}"
     end
 
-    # Параметры пути в порядке появления — их подставляют в шаблон адреса.
+    # Параметры пути в порядке объявления; подставляются в шаблон адреса.
     # @return [Array<Hash>] параметры пути в порядке появления
     def path_parameters
       parameters.select { |param| param[:in] == "path" }
     end
 
-    # Параметры строки запроса: заполняем только обязательные, остальные провайдер
-    # и так считает необязательными.
+    # Параметры строки запроса. Заполняются только обязательные.
     # @return [Array<Hash>]
     def query_parameters
       parameters.select { |param| param[:in] == "query" }
     end
 
-    # Параметры-заголовки: среди них ищутся идемпотентность и подпись webhook.
+    # Параметры-заголовки; среди них распознаются идемпотентность и подпись webhook.
     # @return [Array<Hash>]
     def header_parameters
       parameters.select { |param| param[:in] == "header" }
     end
 
-    # Схема успешного ответа: первый код из диапазона 2xx.
+    # Схема успешного ответа: наименьший код из диапазона 2xx.
     # @return [Hash, nil] { description:, schema: } или nil, если ответа 2xx нет
     def success_response
       code = responses.keys.select { |key| key.to_s.start_with?("2") }.min
       responses[code]
     end
 
-    # Коды ошибок, которые провайдер описал у этой операции.
+    # Коды ошибок, описанные провайдером у этой операции.
     # @return [Array<Integer>] по возрастанию
     def error_codes
       responses.keys.map(&:to_i).select { |code| code >= 400 }.sort
     end
 
-    # Весь текст операции одной строкой — по нему работают правила и поиск ограничений.
+    # Текст операции одной строкой; используется правилами и поиском ограничений.
     # @return [String]
     def text
       [summary, description].compact.join("\n")

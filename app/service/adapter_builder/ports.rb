@@ -2,9 +2,7 @@
 
 module Service
   module AdapterBuilder
-    # Интерфейсы объявлены там, где используются: сценарий сборки описывает, что
-    # ему нужно от внешнего мира, а адаптеры под это подписываются. Ни файловой
-    # системы, ни ERB сценарий не знает — в тестах и то, и другое подменяется.
+    # Интерфейсы на стороне потребителя: сценарий описывает, адаптеры реализуют.
     module Ports
       # Откуда берём описание API.
       module SpecSource
@@ -26,8 +24,56 @@ module Service
         end
       end
 
-      # Правила разбора вместе с профилем контракта, под который собирается класс.
-      # Реализация — Config::Settings.
+      # Раздача ролей по операциям: правила с весами, эмбеддинги или запрос в LLM.
+      module Classifier
+        # @param _operations [Array<Models::ApiOperation>] все операции описания
+        # @return [Hash{Symbol => Models::RoleBinding}] роль → привязка, включая заглушки
+        # @raise [NotImplementedError] адаптер не реализовал порт
+        def call(_operations)
+          raise NotImplementedError, "#{self.class}#call"
+        end
+
+        # @param candidate [Object] проверяемая реализация порта
+        # @return [Object] тот же объект, если он реализует порт
+        # @raise [ArgumentError] объект не отвечает на call
+        def self.assert!(candidate)
+          return candidate if candidate.respond_to?(:call)
+
+          raise ArgumentError, "классификатор не отвечает на: call"
+        end
+      end
+
+      # Проверка собранного класса на его фикстурах. Реализация — Testing::Tester.
+      module Tester
+        # @param _source [String] исходник напечатанного класса
+        # @param _blueprint [Models::Blueprint] всё, что инструмент решил
+        # @return [Testing::Report] что проверено и что не сошлось
+        # @raise [NotImplementedError] адаптер не реализовал порт
+        def call(_source:, _blueprint:)
+          raise NotImplementedError, "#{self.class}#call"
+        end
+
+        # @param candidate [Object] проверяемая реализация порта
+        # @return [Object] тот же объект, если он реализует порт
+        # @raise [ArgumentError] объект не отвечает на call
+        def self.assert!(candidate)
+          return candidate if candidate.respond_to?(:call)
+
+          raise ArgumentError, "проверяльщик не отвечает на: call"
+        end
+      end
+
+      # Текст в вектор; нужен смысловому классификатору.
+      module Embedder
+        # @param _texts [Array<String>] тексты одним запросом
+        # @return [Array<Array<Float>>] векторы в том же порядке, что и тексты
+        # @raise [NotImplementedError] адаптер не реализовал порт
+        def embed(_texts)
+          raise NotImplementedError, "#{self.class}#embed"
+        end
+      end
+
+      # Правила разбора и профиль контракта. Реализация — Config::Settings.
       module Rules
         REQUIRED_METHODS = %i[
           contract ordered_roles roles_with role_with required_role? status_sources
@@ -36,8 +82,8 @@ module Service
           payload_fields requisite_fields callback_fields headers constraints path_params http
         ].freeze
 
-        # Проверка, что переданный объект действительно отвечает за правила.
-        # @param candidate [Object] предполагаемая реализация порта
+        # Проверка, что объект реализует порт правил.
+        # @param candidate [Object] проверяемая реализация порта
         # @return [Object] тот же объект, если он подходит
         # @raise [ArgumentError] объект не отвечает на часть REQUIRED_METHODS
         def self.assert!(candidate)

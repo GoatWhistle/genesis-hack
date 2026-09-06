@@ -4,8 +4,7 @@ require "pathname"
 
 module Repositories
   module Rules
-    # Правила на диске: каталог app/config/rules как есть. Это хранилище по умолчанию —
-    # с ним инструмент работает, даже если ни одного внешнего сервиса рядом нет.
+    # Правила на диске: каталог app/config/rules. Хранилище по умолчанию.
     class Local
       include Store
 

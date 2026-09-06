@@ -1,26 +1,24 @@
 # frozen_string_literal: true
 
 module Service
-  # Менеджер сборок: небольшой сервис вокруг сценария. Он хранит правила и шаблоны
-  # интерфейсов, даёт их читать и править — руками или файлом — и по ним же
-  # запускает сборку адаптера.
+  # Менеджер сборок: правила, шаблоны и запуск сборки по ним.
   module BuildManager
-    # Библиотека правил: что лежит в хранилище и как это менять. Хранилище может
-    # быть локальным каталогом или бакетом — библиотека одинаково работает с обоими.
+    # Библиотека правил: что лежит в хранилище и как это менять.
     class Library
-      # Что за файл лежит по ключу: по расширению видно, правила это или шаблон.
-      KINDS = { ".yml" => "rules", ".yaml" => "rules", ".erb" => "template" }.freeze
+      # Вид файла определяется по расширению ключа.
+      KINDS = { ".yml" => "rules", ".yaml" => "rules", ".erb" => "template",
+                ".rb" => "probe" }.freeze
 
-      # @param catalog [Config::Catalog] раскладка правил поверх хранилища
+      # @param catalog [Config::Catalog] размещение правил в хранилище
       def initialize(catalog: Config::Catalog.new)
         @catalog = catalog
       end
 
-      # @return [String] где хранятся правила
+      # @return [String] адрес хранилища правил
       def location = @catalog.store.to_s
 
       # @param prefix [String] начало ключа: например contracts/space_payments/
-      # @return [Array<Hash>] что лежит в хранилище
+      # @return [Array<Hash>] файлы хранилища
       def entries(prefix = "")
         @catalog.store.list(prefix).map { |key| { key: key, kind: kind_of(key) } }
       end
@@ -30,8 +28,7 @@ module Service
       # @raise [ArgumentError] такого файла нет
       def read(key) = @catalog.store.read(key)
 
-      # Запись — единственный способ поменять поведение инструмента: и правила, и
-      # шаблоны интерфейсов правятся здесь, без пересборки и перезапуска.
+      # Правка правил и шаблонов идёт без пересборки и перезапуска.
       # @param key [String] ключ файла
       # @param content [String] новое содержимое
       # @return [Hash] что записали
@@ -45,7 +42,7 @@ module Service
       # @return [Array<String>] имена профилей контрактов
       def names = @catalog.names
 
-      # @return [Array<Hash>] профили целиком: чем отличаются и какие роли ищут
+      # @return [Array<Hash>] профили целиком: состав и искомые роли
       def profiles = names.map { |name| profile(name) }
 
       # @param name [String] имя профиля
@@ -62,22 +59,21 @@ module Service
 
       # @param settings [Config::Settings]
       # @param role [Config::Settings::Role]
-      # @return [Hash] что роль значит для сборки
+      # @return [Hash] описание роли для сборки
       def role(settings, role)
         { name: role.name, title: role.title, threshold: role.threshold,
           required: settings.required_role?(role.name), traits: role.traits }
       end
 
       # @param key [String]
-      # @return [String] вид файла: правила, шаблон или что-то ещё
+      # @return [String] вид файла: правила, шаблон, проба или прочее
       def kind_of(key) = KINDS.fetch(::File.extname(key), "other")
 
-      # YAML проверяем на разбор сразу: испорченные правила иначе свалили бы не
-      # запись, а следующую сборку — и concerned оказался бы другой человек.
+      # YAML разбирается при записи: иначе ошибка всплывёт на следующей сборке.
       # @param key [String]
       # @param content [String]
       # @return [void]
-      # @raise [ArgumentError] содержимое пустое или YAML не разобрался
+      # @raise [ArgumentError] пустое содержимое или ошибка разбора YAML
       def check!(key, content)
         raise ArgumentError, "пустое содержимое для #{key}" if content.to_s.strip.empty?
         return unless kind_of(key) == "rules"

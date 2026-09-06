@@ -1,67 +1,86 @@
-# Распознавание чужого API: как разные провайдеры называют одни и те же операции,
-# поля и заголовки. От контракта заказчика здесь не зависит ничего — в этом файле
-# нет ни одного имени метода, статуса или выражения на Ruby.
-#
-# Контракт живёт отдельно, в app/config/rules/contracts/<имя>/contract.yml, и ссылается
-# на здешние архетипы и группы по именам. Поэтому новый вариант написания
-# operationId добавляется правкой одной строки здесь — сразу для всех контрактов.
+# Распознавание чужого API: как провайдеры называют операции, поля и заголовки.
+# Имён методов и выражений контракта здесь нет — они в contracts/<имя>/contract.yml.
 
-# Архетипы операций: что вообще бывает в платёжном API. Роль контракта называется
-# как угодно, но узнаётся по архетипу.
-#
-# Правило — это поле операции, регулярка по нему и вес. Веса нужны, чтобы слабый
-# признак (POST) не перевешивал сильный (глагол в начале operationId). Veto снимает
-# кандидата целиком: без него `cancelPayout` выигрывал бы архетип создания, потому
-# что это POST со словом payout в имени.
+# Архетипы операций. Правило — поле операции, регулярка и вес; veto снимает
+# кандидата целиком: иначе cancelPayout выигрывал бы архетип создания.
 archetypes:
   creation:
     rules:
-      # Пины под четыре описания, на которых идёт показ. Совпадение по точному
-      # operationId перекрывает порог в одиночку, поэтому классификация этих
-      # четырёх не зависит от того, сработали ли общие правила ниже.
-      - { field: operation_id, pattern: '\A(createPayout|submitTransfer|makeTransfer|createPaymentOrder)\z', weight: 12 }
-      - { field: operation_id, pattern: '\A(create|make|submit|send|issue|register|open|start|initiate|new)', weight: 6 }
-      - { field: operation_id, pattern: '(payout|payment|transfer|deposit|order|withdraw|charge)', weight: 3 }
+      # Движение денег ОТ нас — самый сильный признак. payment сюда не входит: им зовут
+      # и приём платежа.
+      - { field: method_name, pattern: '(payout|disburse|withdraw|cashout|cash_out|remit|transfer|перевод|выплат)', weight: 6 }
+      - { field: path, pattern: '(payout|disburse|withdraw|cashout|remit|transfer)', weight: 4 }
+      # Глагол создания. Смотрим method_name, а не operation_id: последнего может не быть.
+      - { field: method_name, pattern: '(create|make|submit|send|issue|register|open|start|initiat|\bnew\b|enqueue|instruct|execute|book)', weight: 6 }
+      # Слабые существительные: сами по себе роли не дают, но добирают счёт там,
+      # где сильного слова нет.
+      - { field: method_name, pattern: '(payment|order|deposit|batch)', weight: 2 }
+      - { field: path, pattern: '(payment|order|batch)', weight: 2 }
       - { field: http_method, pattern: '\Apost\z', weight: 2 }
       - { field: path, pattern: '\A[^{}]+\z', weight: 2 }
-      - { field: summary, pattern: '(создать|создание|отправить|отправка|create|submit|send)', weight: 2 }
+      - { field: summary, pattern: '(создать|создание|отправить|отправка|инициировать|выплат|перевод|create|make|submit|send|initiat|issue|start|pay out|transfer)', weight: 2 }
     veto:
-      - { field: operation_id, pattern: '(refund|cancel|revoke|abort|balance|webhook|callback|status|info|list)' }
-      - { field: path, pattern: '(refund|cancel|revoke|abort|balance|webhook|callback|revocation)' }
+      # Создание не выплаты: согласие, ссылка, реквизит, подписка, входящий платёж.
+      # Список набран по ошибкам на настоящих описаниях.
+      - { field: method_name, pattern: '(refund|cancel|revoke|abort|reverse|return)' }
+      - { field: method_name, pattern: '(webhook|callback|notification|event|subscription)' }
+      - { field: method_name, pattern: '(consent|incoming|link|credential|token|instrument|recipient|quote|session|intent|profile|setting|check|estimate|verify|approve|finalize|authoriz|capture)' }
+      - { field: method_name, pattern: '(method|permit|basket|signing|bank_account|transaction|config|score|access|renew|delete|update)' }
+      - { field: method_name, pattern: '(status|info|list|search|export|detail|balance_check)' }
+      - { field: path, pattern: '(refund|cancel|revoke|abort|webhook|callback|revocation|consent|incoming|session|authoris|authoriz)' }
+      - { field: method_name, pattern: '(authoris|\A\d)' }
+      # Выплату не создают чтением и не создают удалением. Правило смысловое, а не
+      # подогнанное: без него роль забирал GET со списком переводов.
+      - { field: http_method, pattern: '\A(get|delete|head)\z' }
 
   status_lookup:
     rules:
-      - { field: operation_id, pattern: '\A(getPayoutStatus|fetchTransfer|transferInfo|getPaymentOrder)\z', weight: 12 }
+      # Слово о движении денег наружу: иначе роль заберёт первый GET по идентификатору.
+      - { field: method_name, pattern: '(payout|disburse|withdraw|cashout|remit|transfer|перевод|выплат)', weight: 6 }
+      - { field: path, pattern: '(payout|disburse|withdraw|cashout|remit|transfer)', weight: 4 }
+      - { field: method_name, pattern: '(payment|order|batch)', weight: 2 }
+      - { field: path, pattern: '(payment|order|batch)', weight: 2 }
       - { field: http_method, pattern: '\Aget\z', weight: 4 }
       - { field: path, pattern: '\{[^}]+\}\z', weight: 4 }
-      - { field: operation_id, pattern: '(status|state|info|fetch|get|show|details|retrieve|check)', weight: 4 }
+      - { field: method_name, pattern: '(status|state|info|fetch|get|show|details|retrieve|snapshot)', weight: 4 }
       - { field: summary, pattern: '(статус|состояни|сведени|получить|узнать|status|state|fetch)', weight: 2 }
     veto:
-      - { field: operation_id, pattern: '(balance|refund|webhook|callback|cancel|revoke|abort|list)' }
-      - { field: path, pattern: '(balance|refund|webhook|callback|revocation)' }
+      - { field: method_name, pattern: '(refund|webhook|callback|cancel|revoke|abort|list|search|export)' }
+      - { field: method_name, pattern: '(consent|incoming|token|session|credential|statement|company|block|3_d|secure|recipient|card|audit|sca|group|setting|link|instrument)' }
+      - { field: path, pattern: '(refund|webhook|callback|revocation|consent|incoming|audit)' }
+      - { field: method_name, pattern: '(item|authoris)' }
+      - { field: http_method, pattern: '\A(post|put|patch|delete)\z' }
 
   callback:
     rules:
-      - { field: operation_id, pattern: '\A(payoutWebhook)\z', weight: 12 }
-      - { field: operation_id, pattern: '(webhook|callback|notification|notify|event)', weight: 8 }
-      - { field: path, pattern: '(webhook|callback|notification|events)', weight: 6 }
-      - { field: tags, pattern: '(webhook|callback|notification|уведомлен)', weight: 4 }
+      - { field: method_name, pattern: '(webhook|callback|notification|notify|event|signal|hook)', weight: 8 }
+      - { field: path, pattern: '(webhook|callback|notification|events|hooks|signal)', weight: 6 }
+      - { field: tags, pattern: '(webhook|callback|notification|hook|уведомлен)', weight: 4 }
       - { field: http_method, pattern: '\Apost\z', weight: 1 }
-    veto: []
+    veto:
+      # Регистрацию webhook отсекаем по глаголу: своё уведомление зовут существительным.
+      - { field: method_name, pattern: '(create|register|subscri|configure|update|delete|remove|list|search|get|read|test|ping|disable|enable|resend|meter|billing|terminal|timeline|custom|\Aset_|endpoint|request_notify)' }
+      - { field: method_name, pattern: '\Apost_webhooks?\z' }
 
   cancellation:
     rules:
-      - { field: operation_id, pattern: '\A(cancelPayout|revokeTransfer|abortTransfer|revokePaymentOrder)\z', weight: 12 }
-      - { field: operation_id, pattern: '(cancel|revoke|abort|void|withdraw_request|revocation)', weight: 8 }
-      - { field: path, pattern: '(cancel|revoke|abort|revocation)', weight: 4 }
-      - { field: summary, pattern: '(отмен|отозв|остановить|cancel|revoke|abort)', weight: 2 }
-      - { field: http_method, pattern: '\Apost\z', weight: 1 }
+      # Глаголов отмены больше, чем cancel: halt у одних, decline у других,
+      # withdraw у третьих — и последний ещё и приходит методом DELETE.
+      - { field: method_name, pattern: '(cancel|revoke|abort|void|halt|decline|stop|terminate|withdraw|revocation)', weight: 8 }
+      - { field: path, pattern: '(cancel|revoke|abort|halt|decline|stop|withdraw|revocation)', weight: 4 }
+      # То же слово о движении денег наружу: без него роль забирает первая
+      # попавшаяся отмена чего угодно — купона, терминала, документа.
+      - { field: method_name, pattern: '(payout|disburse|transfer|cashout|выплат|перевод)', weight: 6 }
+      - { field: path, pattern: '(payout|disburse|transfer|cashout)', weight: 4 }
+      - { field: method_name, pattern: '(payment|order|batch)', weight: 2 }
+      - { field: path, pattern: '(payment|order|batch)', weight: 2 }
+      - { field: summary, pattern: '(отмен|отозв|остановить|cancel|revoke|abort|stop)', weight: 2 }
+      - { field: http_method, pattern: '\A(post|delete)\z', weight: 1 }
     veto:
-      - { field: operation_id, pattern: '(refund|balance)' }
+      - { field: method_name, pattern: '(refund|coupon|token|terminal|mandate|authoriz|authoris|document|consent|subscription|timeline|invoice)' }
+      - { field: method_name, pattern: '\A(?!.*(?:payout|disburse|transfer|cashout|batch)).*payment.*cancel' }
 
-# Слова, которыми провайдеры называют состояние операции, разобранные по смыслу.
-# Имена групп внутренние: контракт переводит их в свои статусы. Сравнение
-# регистронезависимое — Nordbank пишет состояния капсом, остальные строчными.
+# Состояния операции по смыслу; имена групп внутренние, контракт их переводит.
 status_patterns:
   settled:
     - '\A(completed?|success(ful)?|succeeded|paid|delivered|executed|settled|done|finished|approved|refunded|credited)\z'
@@ -119,10 +138,7 @@ callback_fields:
   operation_id: ['\A\w*(payout|payment|transfer|operation|order)_?id\z', '\Aid\z', '\w*(no|reference)\z']
   event: ['\Aevent\w*\z', '\Atype\z', '\Aaction\z']
   status: ['\Astatus\z', '\Astate\z']
-  # Код отказа в уведомлении зовут по-разному: error_code, decline_reason,
-  # rejectionCode. Это общие слова отрасли, а не имена конкретных провайдеров.
-  error_code: ['\Aerror\z', 'error_?code', 'failure', '\Areason\z',
-               'reject\w*_?(code|reason)', 'decline_?(code|reason)', 'refusal_?code']
+  error_code: ['\Aerror\z', 'error_?code', 'failure', '\Areason\z']
   # Внутри объекта ошибки нас интересует машинный код, а не текст для человека.
   error_detail: ['\Acode\z', '\Areason\z', '\Amessage\z']
 
@@ -136,9 +152,7 @@ headers:
 amount_units:
   minor_patterns: ['копейк', 'коп\.', 'kopeck', 'minor units?', 'минимальных единицах', '\bcents?\b']
   multiplier: 100
-  # Слово «копейки» в описании строковой суммы («рубли и копейки через точку»)
-  # говорит о формате записи, а не о единицах. Поэтому копейки признаём только
-  # у целочисленного поля — иначе 1500.00 рублей уедет в 150000 рублей.
+  # У строковой суммы «копейки» — про формат записи, а не единицы: 1500.00 не 150000.
   minor_requires_integer: true
 
 # Границы суммы, названные словами. kind — внутреннее имя ограничения; во что оно

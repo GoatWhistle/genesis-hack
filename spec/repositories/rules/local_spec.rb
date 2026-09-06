@@ -31,8 +31,7 @@ RSpec.describe Repositories::Rules::Local do
     expect { store.read("нетакого.yml") }.to raise_error(ArgumentError)
   end
 
-  # Ключи приходят в том числе из HTTP-запроса, поэтому за пределы корня
-  # хранилища выйти нельзя ни чтением, ни записью.
+  # Ключ приходит снаружи: за пределы корня выйти нельзя.
   it "не выпускает за пределы корня" do
     expect { store.read("contracts/../../etc/passwd") }
       .to raise_error(ArgumentError, /за пределы хранилища/)

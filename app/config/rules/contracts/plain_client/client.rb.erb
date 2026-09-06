@@ -1,9 +1,7 @@
 # frozen_string_literal: true
 
-# Клиент собран инструментом rsocket по описанию OpenAPI под контракт
-# <%= contract %>. Правила разбора живут в app/config/rules/contracts/<%= contract %>/,
-# решения по каждой роли — в mapping.yml рядом с этим файлом. Правки здесь затрёт
-# следующий прогон.
+# Клиент собран rsocket по описанию OpenAPI под контракт <%= contract %>.
+# Решения по ролям — в mapping.yml рядом. Правки затрёт следующий прогон.
 
 require "json"
 require "net/http"
@@ -11,8 +9,7 @@ require "openssl"
 require "uri"
 
 module Payouts
-  # Клиент провайдера <%= provider %>. Платёж принимается хешем, успех возвращается
-  # значением, отказ провайдера — исключением ProviderError.
+  # Клиент провайдера <%= provider %>: платёж хешем, отказ — ProviderError.
   class <%= class_name %>
     ENV_PREFIX = "<%= env_prefix %>"
     BASE_URL = ENV.fetch("#{ENV_PREFIX}_BASE_URL", "<%= base_url %>")
@@ -20,8 +17,7 @@ module Payouts
     READ_TIMEOUT = <%= http.fetch(:read_timeout) %>
     USER_AGENT = "<%= http.fetch(:user_agent) %>"
 
-    # Состояния провайдера в терминах контракта. Ключи в нижнем регистре: часть
-    # провайдеров пишет состояния капсом.
+    # Состояния провайдера в терминах контракта; ключи в нижнем регистре.
     STATE_MAP = {
       <%= status_entries.map { |token, state| "\"#{token}\" => :#{state}" }.join(",\n      ") %>
     }.freeze
@@ -41,8 +37,7 @@ module Payouts
       default: :unknown_error
     }.freeze
 
-    # Ошибки, после которых запрос имеет смысл повторить. Обрыв связи сюда же:
-    # до провайдера не дошли, значит он ничего не изменил.
+    # Ошибки, после которых повтор имеет смысл; обрыв связи сюда же.
     RETRIABLE = %i[transport_error <%= error_codes_for("retry").join(" ") %>].freeze
 <% constraint_constants.each do |name, value, source| -%>
 
@@ -75,7 +70,7 @@ module Payouts
     # Платёж не проходит ограничения провайдера — до сети дело не дойдёт.
     InvalidPayment = Class.new(StandardError)
 
-    # Ответ провайдера: код, разобранное тело и причина, если до него не дошли.
+    # Ответ провайдера; error заполнен, если до него не дошли.
     Response = Struct.new(:code, :body, :error) do
       # @return [Boolean] ответ дошёл и провайдер не отказал
       def success? = error.nil? && code.between?(200, 299)
@@ -169,8 +164,7 @@ module Payouts
       }
     end
 <% else -%>
-    # Webhook в описании провайдера не найден: <%= binding_for(:read_callback).explanation %>.
-    # Состояние узнаётся опросом payout_state.
+    # Webhook не найден: <%= binding_for(:read_callback).explanation %>.
     # @param _payload [Hash] тело уведомления, читать его нечем
     # @raise [NotImplementedError] всегда: провайдер не описывает webhook
     def read_callback(_payload)
@@ -180,8 +174,7 @@ module Payouts
 
     private
 
-    # Один запрос к провайдеру: адрес, авторизация, JSON туда и обратно. Ответ с
-    # кодом ошибки превращается в исключение — это и есть контракт клиента.
+    # Один запрос; ответ с кодом ошибки превращается в исключение.
     # @param http_method [Symbol] :get, :post и так далее
     # @param path [String] адрес с уже подставленными параметрами
     # @param body [Hash, nil] тело запроса
@@ -277,8 +270,7 @@ module Payouts
     end
 <% if body?(:send_payout) -%>
 
-    # Тело запроса. Имена полей — как у провайдера: тело уходит в JSON без
-    # переименований.
+    # Тело запроса; имена полей — как у провайдера.
     # @param payment [Hash] платёж заказчика
     # @return [Hash] тело запроса
     def send_payout_body(payment)
@@ -345,8 +337,8 @@ module Payouts
 <% end -%>
 <% if signature? -%>
 
-    # Подпись: <%= callback.signature_algorithm.upcase %> от тела запроса. Заголовки
-    # ожидаются в payload["headers"], сырое тело — в payload["raw_body"].
+    # Подпись: <%= callback.signature_algorithm.upcase %> от тела. Заголовки ожидаются в
+    # payload["headers"], сырое тело — в payload["raw_body"].
     # @param payload [Hash] тело уведомления вместе с заголовками
     # @return [Boolean] подпись сходится или проверять её нечем
     def valid_signature?(payload)
@@ -373,8 +365,7 @@ module Payouts
     end
 <% end -%>
 
-    # Тело ответа и тело webhook — обычные хеши: имена полей провайдер задал сам,
-    # поэтому ключи не переименовываем, но принимаем и символы.
+    # Ключи не переименовываем, но принимаем и символы.
     # @param body [Hash, nil] тело ответа или уведомления
     # @param path [Array<String>] путь до значения
     # @return [Object, nil] значение по пути

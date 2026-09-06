@@ -3,18 +3,16 @@
 module Service
   module AdapterBuilder
     module Analysis
-      # Ограничения для check_conditions: в каких единицах провайдер ждёт сумму,
-      # какие границы у неё и какие валюты он принимает. Проверить эндпоинтом это
-      # нельзя, поэтому читаем схему запроса и текст описания.
+      # Ограничения для check_conditions: единицы суммы, границы, список валют.
       class ConstraintMiner
         Result = Struct.new(:constraints, :multiplier, :amount_expression, :notes,
                             keyword_init: true)
 
-        # Ключ схемы → вид ограничения и сравнение, которым его проверяют.
+        # Ключ схемы → вид ограничения и сравнение для проверки.
         SCHEMA_BOUNDS = [%i[minimum min_amount less_than],
                          %i[maximum max_amount greater_than]].freeze
 
-        # @param rules [Ports::Rules] словарь полей и секция constraints конфига
+        # @param rules [Ports::Rules] словарь полей и секция constraints конфигурации
         def initialize(rules)
           @rules = rules
           @settings = rules.constraints
@@ -22,8 +20,8 @@ module Service
         end
 
         # @param operation [Models::ApiOperation, nil] операция создания
-        # @param spec_text [String] название и описание API — лимиты там называют словами
-        # @return [Result] пустой набор без множителя, если операции нет
+        # @param spec_text [String] название и описание API: границы могут быть указаны текстом
+        # @return [Result] пустой набор с множителем 1, если операция не найдена
         def call(operation:, spec_text: "")
           return empty if operation.nil?
 
@@ -46,14 +44,13 @@ module Service
           amount_bounds(amount, operation, multiplier) + [currency_constraint(operation)].compact
         end
 
-        # @return [Result] когда роль создания не распозналась
+        # @return [Result] для случая, когда роль создания не занята
         def empty
           Result.new(constraints: [], multiplier: 1,
                      amount_expression: @settings.dig(:rendering, :number), notes: [])
         end
 
-        # Сумма может лежать и в отдельном объекте (sum: { value, currency }),
-        # поэтому, найдя объект, спускаемся в него за числовым полем.
+        # Сумма бывает во вложенном объекте (sum: { value, currency }).
         # @param operation [Models::ApiOperation]
         # @return [Parsing::SchemaProbe::Found, nil] числовое поле суммы
         def amount_property(operation)
@@ -65,12 +62,11 @@ module Service
           Parsing::SchemaProbe.new(found.node).find(patterns) || found
         end
 
-        # Копейки признаём только у целого поля: у строковой суммы «рубли и копейки
-        # через точку» те же слова описывают формат записи, а не единицы.
+        # Копейки признаём только у целого поля: у строки те же слова описывают формат.
         # @param amount [Parsing::SchemaProbe::Found, nil]
         # @param operation [Models::ApiOperation]
         # @param spec_text [String]
-        # @return [Boolean] ждёт ли провайдер сумму в копейках
+        # @return [Boolean] ожидает ли провайдер сумму в минорных единицах
         def minor_units?(amount, operation, spec_text)
           return false if amount.nil?
           return false if @settings.fetch(:minor_requires_integer) && !integer?(amount)
@@ -95,20 +91,19 @@ module Service
         end
 
         # @param amount [Parsing::SchemaProbe::Found]
-        # @return [Boolean] целое поле — единственное, у которого бывают копейки
+        # @return [Boolean] является ли поле целочисленным
         def integer?(amount) = amount.node[:type].to_s == "integer"
 
-        # Строку с точкой в шаблоне провайдер ждёт как «1500.00», без точки — как есть.
+        # Строка с точкой в шаблоне означает формат «1500.00», без точки — значение как есть.
         # @param amount [Parsing::SchemaProbe::Found]
         # @return [Boolean]
         def decimal?(amount) = amount.node[:pattern].to_s.include?(".")
 
-        # Границы: сперва схема (провайдер обязан держать её актуальной), затем
-        # текст описания. Значения приводим к единицам контракта заказчика.
+        # Границы: сначала схема, затем текст; значения приводятся к единицам контракта.
         # @param amount [Parsing::SchemaProbe::Found, nil]
         # @param operation [Models::ApiOperation]
         # @param multiplier [Integer]
-        # @return [Array<Models::Constraint>] границы из схемы, дополненные текстовыми
+        # @return [Array<Models::Constraint>] границы из схемы, дополненные найденными в тексте
         def amount_bounds(amount, operation, multiplier)
           from_schema = schema_bounds(amount, multiplier)
           taken = from_schema.map(&:kind)
@@ -141,11 +136,10 @@ module Service
           end
         end
 
-        # Множитель к найденному в тексте числу не применяем: в описании сумму
-        # называют в валюте («минимальная сумма — 1000 RUB»), а не в копейках.
+        # Множитель к числу из текста не применяется: там сумма в основной валюте.
         # @param rule [Hash] правило поиска: pattern, comparison, kind
         # @param match [MatchData] совпадение с группой value
-        # @return [Models::Constraint, nil] nil, если число не разобралось
+        # @return [Models::Constraint, nil] nil, если число не распознано
         def text_constraint(rule, match)
           value = match[:value].to_s.gsub(/\s+/, "").to_i
           return nil if value.zero?
@@ -157,8 +151,7 @@ module Service
           )
         end
 
-        # Список валют берём только из enum: перечисление в схеме — обязательство провайдера,
-        # а валюта, названная в тексте, ещё не значит, что других он не примет.
+        # Список валют берётся только из enum: он задаёт полный набор.
         # @param operation [Models::ApiOperation]
         # @return [Models::Constraint, nil]
         def currency_constraint(operation)
@@ -174,7 +167,7 @@ module Service
 
         # @param value [Numeric] граница в единицах провайдера
         # @param multiplier [Integer]
-        # @return [Numeric] она же в единицах контракта заказчика
+        # @return [Numeric] то же значение в единицах контракта
         def scale(value, multiplier)
           return value if multiplier == 1
 
@@ -184,7 +177,7 @@ module Service
 
         # @param amount [Parsing::SchemaProbe::Found, nil]
         # @param minor [Boolean]
-        # @return [Array<String>] что инструмент решил про сумму — для проверки человеком
+        # @return [Array<String>] принятые решения о сумме для отчёта
         def notes(amount, minor)
           return ["поле суммы в схеме запроса не найдено — сумма уходит как есть"] if amount.nil?
 

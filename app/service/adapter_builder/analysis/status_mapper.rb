@@ -3,9 +3,7 @@
 module Service
   module AdapterBuilder
     module Analysis
-      # Перевод состояний провайдера в статусы контракта заказчика. Значения берём
-      # из enum в схемах ответов, а не из текста: перечисление — единственное место,
-      # где провайдер обязан перечислить состояния полностью.
+      # Состояния провайдера → статусы контракта. Значения берутся из enum в ответах.
       class StatusMapper
         Result = Struct.new(:status_map, :event_map, :status_path, :unmapped, keyword_init: true)
 
@@ -42,8 +40,7 @@ module Service
           end.first
         end
 
-        # Подстраховка: если у статус-запроса перечисления нет, собираем состояния
-        # из всех ответов операций, попавших в роли.
+        # Запасной источник: состояния из ответов всех занятых ролей.
         # @param operations [Array<Models::ApiOperation, nil>]
         # @return [Array<String>] состояния из всех ответов, включая ошибочные
         def collected_tokens(operations)
@@ -62,13 +59,12 @@ module Service
         end
 
         # @param tokens [Array<String>] состояния провайдера
-        # @return [Hash{String => String}] непереводимые состояния в карту не попадают
+        # @return [Hash{String => String}] состояния без соответствия в карту не включаются
         def translate(tokens)
           tokens.to_h { |token| [token, @rules.contract_status(token)] }.compact
         end
 
-        # События webhook вида payout.completed переводим по последнему сегменту:
-        # именно он несёт состояние, префикс лишь называет объект.
+        # События вида payout.completed переводятся по последнему сегменту.
         # @param callback_schema [Hash, nil]
         # @return [Hash{String => String}] событие webhook → статус контракта
         def event_map(callback_schema)

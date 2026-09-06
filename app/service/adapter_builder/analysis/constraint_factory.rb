@@ -3,10 +3,7 @@
 module Service
   module AdapterBuilder
     module Analysis
-      # Найденное ограничение → предпроверка в словах контракта. Вид ограничения
-      # внутренний и одинаков для всех контрактов, а код отказа, имя константы и
-      # выражение, которое проверяется, у каждого свои и лежат в его конфиге.
-      # Контракт, который такую проверку не делает, просто её не описывает.
+      # Найденное ограничение → предпроверка контракта.
       class ConstraintFactory
         # @param rules [Ports::Rules] описание предпроверок контракта
         def initialize(rules)
@@ -14,10 +11,10 @@ module Service
         end
 
         # @param kind [Symbol] :min_amount, :max_amount или :currency
-        # @param source [String] откуда взято ограничение — словами, для человека
+        # @param source [String] источник ограничения в текстовом виде
         # @param value [Integer, Float, Array<String>] граница или список значений
         # @param comparison [Symbol, nil] :less_than или :greater_than; nil для перечисления
-        # @return [Models::Constraint, nil] nil, если контракт такого не проверяет
+        # @return [Models::Constraint, nil] nil, если контракт такую проверку не выполняет
         def call(kind, source:, value:, comparison: nil)
           entry = @rules.condition(kind)
           return nil if entry.nil?

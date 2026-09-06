@@ -4,12 +4,22 @@ require "tmpdir"
 require_relative "../app/boot"
 require_relative "support/contract"
 
+# Подставные сервисы нужны только смысловым классификаторам; их может не быть.
+stubs = File.expand_path("support/classification.rb", __dir__)
+require stubs if File.exist?(stubs)
+
 RSpec.configure do |config|
   config.expect_with(:rspec) do |expectations|
     expectations.include_chain_clauses_in_custom_matcher_descriptions = true
   end
   config.mock_with(:rspec) { |mocks| mocks.verify_partial_doubles = true }
   config.shared_context_metadata_behavior = :apply_to_host_groups
+
+  # Проверка ходит к своему серверу на localhost, поэтому WebMock его пропускает.
+  config.before do
+    WebMock.disable_net_connect!(allow_localhost: true) if defined?(WebMock)
+  end
+
   config.disable_monkey_patching!
   config.order = :random
   Kernel.srand config.seed
@@ -17,14 +27,8 @@ end
 
 EXAMPLES = Dir[File.expand_path("../examples/*/provider_api.yaml", __dir__)].freeze
 
-# Описания берём из examples/, а чего там нет — из spec/fixtures/. В examples/
-# лежит витрина показа, в fixtures/ — намеренно бедные описания, на которых
-# проверяется, что инструмент не выдумывает отсутствующее.
 def example_spec(provider)
-  shown = File.expand_path("../examples/#{provider}/provider_api.yaml", __dir__)
-  return shown if File.exist?(shown)
-
-  File.expand_path("fixtures/#{provider}/provider_api.yaml", __dir__)
+  File.expand_path("../examples/#{provider}/provider_api.yaml", __dir__)
 end
 
 DEFAULT_CONTRACT = "space_payments"
@@ -34,15 +38,13 @@ def rules(contract = DEFAULT_CONTRACT)
   @rules[contract] ||= Config::Importer.call(contract)
 end
 
-# Сборка на настоящих адаптерах: внешнего ничего не осталось, кроме чтения файла.
-# Профиль контракта решает и правила разбора, и шаблон печати.
+# Сборка на настоящих адаптерах: внешнее — только чтение файла.
 def build_service(provider, contract: DEFAULT_CONTRACT)
   Rsocket.builder(rules: rules(contract))
          .call(reference: example_spec(provider), provider: provider)
 end
 
-# Собирает результат и грузит его в процесс: проверяется ровно тот файл, который
-# уедет заказчику, а не строка с исходником.
+# Грузит в процесс тот самый файл, который уедет заказчику.
 def load_service(provider, contract: DEFAULT_CONTRACT)
   result = build_service(provider, contract: contract)
   file = Pathname.new(Dir.mktmpdir).join(result.source_name)

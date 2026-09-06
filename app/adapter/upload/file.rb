@@ -4,8 +4,7 @@ require "pathname"
 
 module Adapter
   module Upload
-    # Результат рядом с собой: output/<provider>/. Так работает командная строка —
-    # собрал, открыл файл, прочитал. Никаких внешних сервисов для этого не нужно.
+    # Результат в каталоге output/<provider>/.
     class File
       include Store
 
