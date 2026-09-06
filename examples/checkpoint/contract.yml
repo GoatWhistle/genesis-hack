@@ -1,0 +1,103 @@
+contract:
+  title: Treasury Core — production payout gateway
+  class_suffix: Gateway
+  outputs:
+    - { template: service.rb.erb, file: "%<provider>s_gateway.rb" }
+    - { template: integration.md.erb, file: INTEGRATION.md }
+    - { template: fixtures.json.erb, file: contract_fixtures.json }
+
+http:
+  open_timeout: 3
+  read_timeout: 12
+  user_agent: "treasury-core-payout-gateway/2.0"
+
+classification:
+  order: [create_request, fetch_status, process_callback, cancel_request]
+  required: [create_request, fetch_status]
+  thresholds:
+    default: 8
+    create_request: 10
+  status_sources: [fetch_status, create_request, process_callback]
+  roles:
+    create_request:
+      title: отправить выплату в провайдера
+      archetype: creation
+      traits: [calls_provider, creates_operation]
+    fetch_status:
+      title: синхронизировать состояние выплаты
+      archetype: status_lookup
+      traits: [calls_provider]
+    process_callback:
+      title: принять подписанное изменение состояния
+      archetype: callback
+      traits: [receives_callback]
+    cancel_request:
+      title: отозвать выплату до исполнения
+      archetype: cancellation
+      traits: [calls_provider]
+
+statuses:
+  approved: settled
+  rejected: failed
+  in_progress: pending
+
+errors:
+  default: { code: provider_unknown_error, action: alert, symbol: bad_gateway }
+  semantics:
+    bad_request: { code: malformed_payout, action: reject, symbol: bad_request }
+    validation: { code: payout_validation_failed, action: reject, symbol: unprocessable_entity }
+    credentials: { code: provider_authentication_failed, action: alert, symbol: unauthorized }
+    forbidden: { code: provider_access_denied, action: alert, symbol: forbidden }
+    insufficient_funds: { code: provider_balance_exhausted, action: retry_later, symbol: payment_required }
+    not_found: { code: payout_not_found, action: reject, symbol: not_found }
+    conflict: { code: payout_state_conflict, action: reject, symbol: conflict }
+    rate_limit: { code: provider_rate_limited, action: retry_backoff, symbol: too_many_requests }
+    internal: { code: provider_internal_error, action: retry, symbol: internal_server_error }
+    bad_gateway: { code: provider_bad_gateway, action: retry, symbol: bad_gateway }
+    unavailable: { code: provider_temporarily_unavailable, action: retry, symbol: service_unavailable }
+    timeout: { code: provider_timeout, action: retry, symbol: gateway_timeout }
+
+sources:
+  payload:
+    amount: 'provider_amount(operation)'
+    currency: 'operation.currency'
+    external_id: 'operation.id'
+    description: 'operation.description'
+  requisite:
+    type: 'requisite(operation, "type")'
+    phone: 'requisite(operation, "phone")'
+    card_token: 'requisite(operation, "card_token")'
+    card_number: 'requisite(operation, "card_number")'
+    account: 'requisite(operation, "account")'
+    name: 'requisite(operation, "name")'
+    bank_code: 'requisite(operation, "bank_code")'
+    bank_name: 'requisite(operation, "bank_name")'
+    inn: 'requisite(operation, "inn")'
+    kpp: 'requisite(operation, "kpp")'
+  path:
+    provider_id: 'operation.provider_operation_id'
+  headers:
+    idempotency: 'operation.id'
+
+amount:
+  integer_minor: '(operation.amount * 100).to_i'
+  integer_major: 'operation.amount.to_i'
+  decimal_string: 'format("%.2f", operation.amount)'
+  string: 'operation.amount.to_s'
+  number: 'operation.amount.to_f'
+
+conditions:
+  min_amount: { code: amount_below_provider_minimum, constant: MIN_AMOUNT, subject: 'operation.amount' }
+  max_amount: { code: amount_above_provider_maximum, constant: MAX_AMOUNT, subject: 'operation.amount' }
+  currency: { code: currency_not_supported, constant: ALLOWED_CURRENCIES, subject: 'operation.currency' }
+
+authorization:
+  api_key_header: 'message["%<parameter>s"] = credential(:api_key)'
+  api_key_query: '# API key is added to the query string in build_uri.'
+  query_pair: '{ "%<parameter>s" => credential(:api_key) }'
+  bearer: 'message["Authorization"] = "Bearer #{credential(:access_token)}"'
+  basic: 'message.basic_auth(credential(:username).to_s, credential(:password).to_s)'
+  unsupported: '# TODO: sign the request using unsupported scheme %<name>s'
+  missing: '# TODO: provider did not document authentication'
+  comment: 'Authentication: %<name>s (%<kind>s).'
+  comment_missing: 'The provider specification contains no securitySchemes.'

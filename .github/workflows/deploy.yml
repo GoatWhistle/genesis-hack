@@ -2,8 +2,18 @@ name: deploy
 
 on:
   push:
-    branches: [main]
-    paths: ["web/**", ".github/workflows/deploy.yml"]
+    branches: [main, codex/deploy-genesis]
+    paths:
+      - "app/**"
+      - "bin/**"
+      - "docs/**"
+      - "examples/**"
+      - "web/**"
+      - "Dockerfile"
+      - "Gemfile"
+      - "Gemfile.lock"
+      - "compose.yaml"
+      - ".github/workflows/deploy.yml"
   workflow_dispatch:
 
 concurrency:
@@ -51,18 +61,18 @@ jobs:
           RELEASE: ${{ github.sha }}
         run: |
           set -euo pipefail
-          ssh "$SSH_USER@$HOST" "mkdir -p /srv/rsocket/releases/$RELEASE"
-          rsync -az --delete web/dist/ "$SSH_USER@$HOST:/srv/rsocket/releases/$RELEASE/"
+          ssh "$SSH_USER@$HOST" "mkdir -p /srv/genesis/releases/$RELEASE"
+          rsync -az --delete web/dist/ "$SSH_USER@$HOST:/srv/genesis/releases/$RELEASE/"
 
           ssh "$SSH_USER@$HOST" RELEASE="$RELEASE" sh -s <<'REMOTE'
           set -eu
-          cd /srv/rsocket
+          cd /srv/genesis
 
           if [ -L current ]; then
             readlink -f current > previous.path
           fi
 
-          ln -sfn "/srv/rsocket/releases/$RELEASE" current.tmp
+          ln -sfn "/srv/genesis/releases/$RELEASE" current.tmp
           mv -T current.tmp current
           echo "current -> $(readlink -f current)"
 
@@ -80,14 +90,15 @@ jobs:
         env:
           HOST: ${{ secrets.SSH_HOST }}
           SSH_USER: ${{ secrets.SSH_USER }}
+          DEPLOY_BRANCH: ${{ github.ref_name }}
         run: |
           set -euo pipefail
-          ssh "$SSH_USER@$HOST" sh -s <<'REMOTE'
+          ssh "$SSH_USER@$HOST" DEPLOY_BRANCH="$DEPLOY_BRANCH" sh -s <<'REMOTE'
           set -eu
-          cd /srv/rsocket/repo
-          git fetch --depth 1 origin main
+          cd /srv/genesis/repo
+          git fetch --depth 1 origin "$DEPLOY_BRANCH"
           git checkout -f FETCH_HEAD
-          docker compose -p rsocket -f web/infra/compose.prod.yaml up -d --build --wait
+          docker compose -p genesis -f web/infra/compose.prod.yaml up -d --build --wait
           REMOTE
 
       - name: Smoke test and rollback
@@ -109,7 +120,7 @@ jobs:
           echo "Deployment is not responding, rolling back."
           ssh "$SSH_USER@$HOST" sh -s <<'REMOTE'
           set -eu
-          cd /srv/rsocket
+          cd /srv/genesis
           if [ ! -s previous.path ]; then
             echo "Nothing to roll back to: no previous release."
             exit 1

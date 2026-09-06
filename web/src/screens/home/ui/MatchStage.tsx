@@ -5,7 +5,7 @@ import { isBound } from "~/shared/api/types";
 import { useBakedRun } from "~/shared/api/useRun";
 
 const CONTRACT = "space_payments";
-const DEFAULT_PROVIDER = "novapay";
+const DEFAULT_PROVIDER = "kassabox";
 
 const displayName = (provider: string) => {
   const names: Record<string, string> = {

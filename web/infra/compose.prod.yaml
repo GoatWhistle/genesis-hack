@@ -1,56 +1,86 @@
-# Прод: их compose.yaml целиком, плюс наша статика.
-#
-# include, а не копия: minio, rules и rsocket описаны в корневом compose.yaml
-# командой, и дублировать их здесь значит однажды разойтись с оригиналом.
-#
-# Запуск с VPS (обязательно из корня репозитория, чтобы имя проекта и пути
-# сборки совпадали с корневым compose.yaml):
-#
-#   docker compose -p rsocket -f web/infra/compose.prod.yaml up -d
-#
-# Монтируется КАТАЛОГ-РОДИТЕЛЬ (SITE_ROOT), а внутри него Caddy читает
-# current/ — симлинк на текущий выпуск. Так сделано не для красоты: bind-том
-# в Linux привязан к inode каталога, и если подменять сам каталог со статикой
-# (mv site.old site), контейнер продолжит отдавать удалённый старый каталог —
-# выкладка проходит «успешно», а сайт не меняется. Симлинк внутри
-# смонтированного родителя переключается атомарно и виден контейнеру сразу.
-#
-# На машине разработчика родителем удобно сделать сам web/:
-#
-#   SITE_ROOT=./web docker compose -p rsocket -f web/infra/compose.prod.yaml up -d
-#
-# (тогда current/ — это web/current, симлинк на dist/)
-
-include:
-  - ../../compose.yaml
+x-s3: &s3
+  RSOCKET_S3_ENDPOINT: http://minio:9000
+  RSOCKET_S3_BUCKET: rsocket
+  RSOCKET_S3_ACCESS_KEY_ID: rsocket
+  RSOCKET_S3_SECRET_ACCESS_KEY: rsocket-secret
+  RSOCKET_S3_REGION: us-east-1
 
 services:
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
+  minio:
+    image: minio/minio:latest
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: rsocket
+      MINIO_ROOT_PASSWORD: rsocket-secret
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      # Обычный bind, а не именованный том с driver_opts: том с device
-      # создаётся молча и падает уже при старте контейнера, если каталога нет,
-      # причём `docker compose config` этого не показывает. Bind же docker
-      # создаёт сам, а промах в пути виден сразу — пустой сайт вместо загадки.
-      - ${SITE_ROOT:-/srv/rsocket}:/srv/rsocket:ro
-      - caddy-data:/data
-      - caddy-config:/config
+      - minio:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 5s
+    restart: unless-stopped
+
+  rules:
+    build: ../..
+    image: genesis-rsocket:latest
+    command: bundle exec bin/rsocket push
+    environment:
+      <<: *s3
+    volumes:
+      - ../../app/config/rules:/app/app/config/rules:ro
+    depends_on:
+      minio:
+        condition: service_healthy
+    restart: "no"
+
+  rsocket:
+    build: ../..
+    image: genesis-rsocket:latest
+    environment:
+      <<: *s3
+      RSOCKET_STORAGE: s3
+      RSOCKET_CONTRACT: space_payments
+    volumes:
+      - ../../app/config/rules:/app/app/config/rules:ro
+    depends_on:
+      minio:
+        condition: service_healthy
+      rules:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:9292/health"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+      start_period: 5s
+    restart: unless-stopped
+
+  web:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    volumes:
+      - ${SITE_ROOT:-/srv/genesis}:/srv/genesis:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
     depends_on:
       rsocket:
         condition: service_healthy
     healthcheck:
-      # Внутренняя проверка самого Caddy: конфиг разобран и админ-API живо.
-      test: ["CMD", "wget", "--spider", "-q", "http://127.0.0.1:2019/config/"]
+      test: ["CMD", "wget", "-qO-", "http://127.0.0.1/nginx-health"]
       interval: 10s
       timeout: 3s
-      retries: 3
+      retries: 5
       start_period: 5s
+    networks:
+      default: {}
+      edge:
+        aliases: [genesis-web]
+
+networks:
+  edge:
+    external: true
+    name: timeline_timeline
 
 volumes:
-  caddy-data:
-  caddy-config:
+  minio:

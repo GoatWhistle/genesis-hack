@@ -1,128 +1,74 @@
-# Выкладка сайта на VPS
+# Выкладка на genesis.goatwhistle.ru
 
-Сайт — витрина поверх решения кейса. На сервере крутится их `compose.yaml`
-как есть (minio, rules, rsocket), а сверху добавляется Caddy: он отдаёт статику
-и проксирует `/api/*` в сервис. Один домен, один origin, CORS не нужен.
+Production состоит из отдельного Docker Compose-проекта `genesis` и общего edge-Caddy,
+который уже обслуживает домены на VPS.
 
-## Раскладка на сервере
+Путь запроса:
 
-    /srv/rsocket/
-      repo/                 клон репозитория (нужен для docker compose)
-      releases/<sha>/       выпуски сайта, по одному каталогу на коммит
-      current -> releases/<sha>   симлинк на текущий выпуск
-      previous.path         путь предыдущего выпуска, по нему идёт откат
+    genesis.goatwhistle.ru
+      -> timeline-caddy-1
+      -> genesis-web:80
+         -> статика из /srv/genesis/current
+         -> /api/* -> rsocket:9292
 
-Caddy монтирует `/srv/rsocket` целиком и читает `current/`. Именно симлинк, а
-не подмена каталога: bind-том в Linux привязан к inode, и `mv` каталога со
-статикой оставил бы контейнер с удалённым старым — выкладка «успешна», сайт
-не меняется. Переключение симлинка контейнер видит сразу.
+MinIO и Ruby-сервис доступны только внутри Docker-сети проекта. Контейнер `web`
+подключён также к внешней сети `timeline_timeline`, где его видит общий Caddy.
 
-## Подготовка сервера — один раз
+## Раскладка на VPS
 
-    sudo mkdir -p /srv/rsocket/releases
-    sudo chown -R $USER:$USER /srv/rsocket
-    git clone https://github.com/GoatWhistle/genesis-hack /srv/rsocket/repo
+    /srv/genesis/
+      repo/                 клон репозитория
+      releases/<sha>/       собранная статика каждого выпуска
+      current -> releases/<sha>
+      previous.path         предыдущий выпуск для отката
 
-Нужны docker с плагином compose и rsync. Пользователь, под которым ходит
-выкладка, должен уметь запускать docker без sudo (`usermod -aG docker <user>`).
+## Однократная подготовка
 
-Домен: в `web/infra/Caddyfile` первой строкой блока стоит `rsocket.example.com` —
-замените на свой. Это единственное место в файле, зависящее от площадки.
-Запись A должна уже указывать на VPS, иначе Let's Encrypt не выдаст сертификат.
+На сервере должны быть Docker, Compose, Git и rsync. Репозиторий и каталоги:
 
-Если на сервере **уже есть свой Caddy**, отдельный контейнер не нужен: возьмите
-блок из `Caddyfile` в существующий конфиг, замените `rsocket:9292` на
-`127.0.0.1:9292` и не поднимайте сервис `caddy` из `compose.prod.yaml`.
+    sudo mkdir -p /srv/genesis/releases
+    sudo chown -R user1:user1 /srv/genesis
+    git clone https://github.com/GoatWhistle/genesis-hack.git /srv/genesis/repo
 
-## Секреты и переменные в GitHub
+В Caddy, подключённый к сети `timeline_timeline`, добавляется блок из
+`web/infra/Caddyfile`:
 
-Настройки репозитория → Settings → Secrets and variables → Actions.
-Окружение — `production` (Settings → Environments), workflow выкладки привязан
-к нему.
+    genesis.goatwhistle.ru {
+      encode zstd gzip
+      reverse_proxy genesis-web:80
+    }
+
+## GitHub Environment production
 
 Secrets:
 
-| имя | что кладём |
-|---|---|
-| `SSH_KEY` | приватный ключ целиком, вместе со строками BEGIN/END |
-| `SSH_HOST` | адрес VPS: домен или IP |
-| `SSH_USER` | пользователь на VPS, владелец `/srv/rsocket` |
+- `SSH_KEY` — отдельный приватный deploy-key;
+- `SSH_HOST` — `213.171.25.178`;
+- `SSH_USER` — `user1`.
 
-Variables:
+Variable:
 
-| имя | что кладём |
-|---|---|
-| `SITE_URL` | адрес сайта со схемой, без слеша на конце: `https://rsocket.example.com` |
+- `SITE_URL` — `https://genesis.goatwhistle.ru`.
 
-Публичную половину ключа положите в `~/.ssh/authorized_keys` того же
-пользователя на VPS.
+## Автоматическая выкладка
 
-## Первая выкладка руками
+Push в `main` или `codex/deploy-genesis`, затрагивающий приложение или инфраструктуру,
+запускает `.github/workflows/deploy.yml`:
 
-С машины разработчика, из корня репозитория:
+1. Устанавливает зависимости и проверяет frontend.
+2. Собирает статику.
+3. Загружает её в `/srv/genesis/releases/<sha>` и атомарно переключает `current`.
+4. Переключает серверный клон на тот же commit.
+5. Выполняет `docker compose -p genesis -f web/infra/compose.prod.yaml up -d --build --wait`.
+6. Проверяет главную страницу и `/api/health`; при ошибке возвращает предыдущую статику.
 
-    pnpm --dir web install --frozen-lockfile
-    pnpm --dir web build
+Ручная диагностика:
 
-    ssh <user>@<host> 'mkdir -p /srv/rsocket/releases/manual'
-    rsync -az --delete web/dist/ <user>@<host>:/srv/rsocket/releases/manual/
+    cd /srv/genesis/repo
+    docker compose -p genesis -f web/infra/compose.prod.yaml ps
+    docker compose -p genesis -f web/infra/compose.prod.yaml logs --tail=200
 
-    ssh <user>@<host> '
-      cd /srv/rsocket
-      ln -sfn /srv/rsocket/releases/manual current.tmp
-      mv -T current.tmp current
-      cd repo && git pull
-      docker compose -p rsocket -f web/infra/compose.prod.yaml up -d --build --wait
-    '
+Публичная проверка:
 
-`-p rsocket` обязателен. Без него compose берёт имя проекта от каталога файла
-(`web/infra` → `infra`) и поднимает рядом второй стек вместо обновления
-существующего.
-
-## Проверка
-
-    curl -I  https://<домен>/                 200, Cache-Control: no-cache
-    curl -s  https://<домен>/api/health       {"status":"ok", ...}
-    curl -I  https://<домен>/lab/что-угодно   200 (SPA-маршрут)
-    curl -sI https://<домен>/assets/<файл>    Cache-Control: ... immutable
-    curl -o /dev/null -w '%{http_code}\n' -X PUT https://<домен>/api/rules/base.yml   403
-
-Последняя строка важна: запись правил снаружи должна быть закрыта. Чтение
-(`GET /api/rules`) при этом работает — витрине оно нужно.
-
-Состояние стека: `docker compose -p rsocket -f web/infra/compose.prod.yaml ps`.
-
-## Дальше — автоматически
-
-Push в `main`, затрагивающий `web/**`, запускает `deploy`: сборка →
-rsync в новый `releases/<sha>` → переключение `current` → `git pull` и
-`compose up -d --build --wait` на сервере → проверка `/` и `/api/health`.
-Если проверка не прошла, симлинк возвращается на предыдущий выпуск, а
-workflow краснеет. Хранятся пять последних выпусков; тот, на который смотрит
-`current`, и тот, что записан для отката, не удаляются никогда.
-
-## Откат руками
-
-    ssh <user>@<host> '
-      cd /srv/rsocket
-      ln -sfn "$(cat previous.path)" current.tmp
-      mv -T current.tmp current
-      readlink -f current
-    '
-
-На любой другой выпуск — так же, подставив путь из `ls -1dt /srv/rsocket/releases/*`.
-Перезапускать Caddy не нужно: симлинк читается на каждый запрос.
-
-Если испортили правила через `PUT /rules` (изнутри сети — снаружи закрыто),
-вернуть их из репозитория: `docker compose -p rsocket -f web/infra/compose.prod.yaml
-restart rules`.
-
-## Проверка на машине разработчика
-
-Весь стек поднимается локально, если подставить свой каталог статики и порт.
-Домен в `Caddyfile` временно меняется на `:8080`:
-
-    SITE_ROOT=<каталог-родитель> \
-      docker compose -p rsocket -f web/infra/compose.prod.yaml up -d
-
-В `SITE_ROOT` должен лежать симлинк `current` на каталог со сборкой.
+    curl -I https://genesis.goatwhistle.ru/
+    curl https://genesis.goatwhistle.ru/api/health

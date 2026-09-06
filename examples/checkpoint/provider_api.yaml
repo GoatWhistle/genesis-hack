@@ -1,0 +1,370 @@
+openapi: 3.1.0
+info:
+  title: Aurum Instant Payouts API
+  version: 2026.09
+  summary: Real-time payouts for marketplaces and treasury platforms
+  description: |
+    Aurum executes RUB and KZT payouts through Faster Payments and bank rails.
+    Every mutating request is idempotent, every state transition is delivered by
+    a signed webhook, and transient failures are explicitly retryable.
+
+servers:
+  - url: https://sandbox-api.aurum.example/v2
+    description: Certification sandbox
+  - url: https://api.aurum.example/v2
+    description: Production
+
+security:
+  - OAuth2Bearer: []
+
+tags:
+  - name: Transfers
+    description: Payout lifecycle
+  - name: Webhooks
+    description: Signed payout events
+  - name: Treasury
+    description: Balance and reconciliation operations
+
+paths:
+  /transfers:
+    post:
+      tags: [Transfers]
+      operationId: initiateTransfer
+      summary: Create and send a payout
+      description: |
+        Creates a payout exactly once. Amount is expressed in minor units.
+        Minimum amount is 100 RUB; maximum amount is 5 000 000 RUB.
+      security:
+        - OAuth2Bearer: []
+        - MerchantKey: []
+      parameters:
+        - $ref: '#/components/parameters/RequestId'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTransferRequest'
+            example:
+              merchant_reference: "ORDER-2026-0906-1842"
+              amount:
+                value: 149990
+                currency: RUB
+              beneficiary:
+                method: sbp
+                phone: "79001234567"
+                bank_code: "044525225"
+                name: "Иван Петров"
+              description: "Выплата продавцу за заказ #1842"
+      responses:
+        '201':
+          description: Payout accepted for processing
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TransferEnvelope'
+              example:
+                data:
+                  transfer_id: "trf_01K4F7G9Q2Z8M3N6"
+                  merchant_reference: "ORDER-2026-0906-1842"
+                  state: queued
+                  amount:
+                    value: 149990
+                    currency: RUB
+                  created_at: "2026-09-06T10:18:42Z"
+                trace_id: "trace_9f72c1"
+        '400': { $ref: '#/components/responses/BadRequest' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '402': { $ref: '#/components/responses/InsufficientFunds' }
+        '409': { $ref: '#/components/responses/Conflict' }
+        '422': { $ref: '#/components/responses/ValidationError' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '503': { $ref: '#/components/responses/Unavailable' }
+
+    get:
+      tags: [Transfers]
+      operationId: listTransfers
+      summary: List payouts for reconciliation
+      parameters:
+        - name: created_from
+          in: query
+          schema: { type: string, format: date-time }
+      responses:
+        '200':
+          description: Payout page
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: '#/components/schemas/Transfer' }
+
+  /transfers/{transfer_id}:
+    get:
+      tags: [Transfers]
+      operationId: retrieveTransferStatus
+      summary: Fetch current payout status
+      parameters:
+        - $ref: '#/components/parameters/TransferId'
+      responses:
+        '200':
+          description: Current payout state
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TransferEnvelope' }
+        '401': { $ref: '#/components/responses/Unauthorized' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '429': { $ref: '#/components/responses/RateLimited' }
+        '504': { $ref: '#/components/responses/Timeout' }
+
+  /transfers/{transfer_id}/revoke:
+    post:
+      tags: [Transfers]
+      operationId: revokeTransfer
+      summary: Revoke a payout before execution
+      description: A payout can be revoked while its state is queued or processing.
+      parameters:
+        - $ref: '#/components/parameters/TransferId'
+        - $ref: '#/components/parameters/RequestId'
+      responses:
+        '200':
+          description: Payout revoked
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TransferEnvelope' }
+        '404': { $ref: '#/components/responses/NotFound' }
+        '409': { $ref: '#/components/responses/Conflict' }
+
+  /webhooks/transfer-status:
+    post:
+      tags: [Webhooks]
+      operationId: transferStatusWebhook
+      summary: Receive payout status notification
+      description: |
+        Aurum sends this callback after every state transition. The raw request
+        body is signed with HMAC-SHA512 and the signature is passed in
+        X-Aurum-Signature.
+      security: []
+      parameters:
+        - name: X-Aurum-Signature
+          in: header
+          required: true
+          description: HMAC-SHA512 signature of the raw JSON body
+          schema: { type: string }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: '#/components/schemas/TransferWebhook' }
+            examples:
+              completed:
+                value:
+                  event_type: transfer.completed
+                  transfer_id: "trf_01K4F7G9Q2Z8M3N6"
+                  state: completed
+                  occurred_at: "2026-09-06T10:18:45Z"
+              declined:
+                value:
+                  event_type: transfer.declined
+                  transfer_id: "trf_01K4F7G9Q2Z8M3N6"
+                  state: declined
+                  occurred_at: "2026-09-06T10:18:45Z"
+                  failure:
+                    code: BENEFICIARY_BANK_REJECTED
+                    message: "Beneficiary bank rejected the transfer"
+      responses:
+        '204': { description: Event accepted }
+
+  /refunds:
+    post:
+      tags: [Transfers]
+      operationId: createRefund
+      summary: Create a refund for a settled payout
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [transfer_id, amount]
+              properties:
+                transfer_id: { type: string }
+                amount: { $ref: '#/components/schemas/Money' }
+      responses:
+        '201': { description: Refund accepted }
+
+  /treasury/balance:
+    get:
+      tags: [Treasury]
+      operationId: getTreasuryBalance
+      summary: Fetch available merchant balance
+      responses:
+        '200':
+          description: Current balance
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  available: { type: integer, description: Amount in minor units }
+                  currency: { type: string, enum: [RUB, KZT] }
+
+components:
+  securitySchemes:
+    OAuth2Bearer:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: Short-lived OAuth 2.0 access token
+    MerchantKey:
+      type: apiKey
+      in: header
+      name: X-Merchant-Key
+      description: Static sandbox credential
+
+  parameters:
+    RequestId:
+      name: X-Request-ID
+      in: header
+      required: true
+      description: Unique idempotency key for safe retries
+      schema: { type: string, format: uuid }
+    TransferId:
+      name: transfer_id
+      in: path
+      required: true
+      schema: { type: string, pattern: '^trf_[A-Z0-9]{16}$' }
+      example: "trf_01K4F7G9Q2Z8M3N6"
+
+  schemas:
+    Money:
+      type: object
+      additionalProperties: false
+      required: [value, currency]
+      properties:
+        value:
+          type: integer
+          minimum: 10000
+          maximum: 500000000
+          description: Amount in minor units (kopecks or tiyns)
+          example: 149990
+        currency:
+          type: string
+          enum: [RUB, KZT]
+
+    Beneficiary:
+      type: object
+      additionalProperties: false
+      required: [method, phone, bank_code, name]
+      properties:
+        method: { type: string, enum: [sbp] }
+        phone: { type: string, pattern: '^7[0-9]{10}$' }
+        bank_code: { type: string, pattern: '^[0-9]{9}$' }
+        name: { type: string, minLength: 2, maxLength: 140 }
+
+    CreateTransferRequest:
+      type: object
+      additionalProperties: false
+      required: [merchant_reference, amount, beneficiary, description]
+      properties:
+        merchant_reference:
+          type: string
+          minLength: 8
+          maxLength: 64
+        amount: { $ref: '#/components/schemas/Money' }
+        beneficiary: { $ref: '#/components/schemas/Beneficiary' }
+        description: { type: string, minLength: 3, maxLength: 180 }
+
+    Transfer:
+      type: object
+      required: [transfer_id, merchant_reference, state, amount, created_at]
+      properties:
+        transfer_id: { type: string }
+        merchant_reference: { type: string }
+        state:
+          type: string
+          enum: [queued, processing, completed, declined, revoked, expired]
+        amount: { $ref: '#/components/schemas/Money' }
+        created_at: { type: string, format: date-time }
+        settled_at: { type: string, format: date-time }
+
+    TransferEnvelope:
+      type: object
+      required: [data, trace_id]
+      properties:
+        data: { $ref: '#/components/schemas/Transfer' }
+        trace_id: { type: string }
+
+    TransferWebhook:
+      type: object
+      required: [event_type, transfer_id, state, occurred_at]
+      properties:
+        event_type:
+          type: string
+          enum: [transfer.queued, transfer.processing, transfer.completed, transfer.declined, transfer.revoked]
+        transfer_id: { type: string }
+        state:
+          type: string
+          enum: [queued, processing, completed, declined, revoked]
+        occurred_at: { type: string, format: date-time }
+        failure:
+          type: object
+          properties:
+            code: { type: string }
+            message: { type: string }
+
+    Error:
+      type: object
+      required: [code, message, trace_id]
+      properties:
+        code: { type: string }
+        message: { type: string }
+        trace_id: { type: string }
+
+  responses:
+    BadRequest:
+      description: Malformed request
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unauthorized:
+      description: Access token is missing or expired
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Error' }
+    InsufficientFunds:
+      description: Merchant settlement balance is insufficient
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Error' }
+    NotFound:
+      description: Payout does not exist
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Idempotency conflict or invalid payout state
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Error' }
+    ValidationError:
+      description: Business validation failed
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Error' }
+    RateLimited:
+      description: Too many requests; retry after Retry-After
+      headers:
+        Retry-After: { schema: { type: integer } }
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Unavailable:
+      description: Provider is temporarily unavailable
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Timeout:
+      description: Provider processing timed out
+      content:
+        application/problem+json:
+          schema: { $ref: '#/components/schemas/Error' }
