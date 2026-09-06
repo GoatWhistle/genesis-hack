@@ -14,6 +14,7 @@ module Service
         # @param document [Hash] сырое описание Swagger 2.0, ключи символами
         def initialize(document)
           @document = document
+          @resolver = SchemaResolver.new(document)
         end
 
         # @return [Hash] документ в форме OpenAPI 3 для SpecParser
@@ -62,8 +63,9 @@ module Service
         def path_item(node)
           return node unless node.is_a?(Hash)
 
-          node.to_h do |key, value|
-            [key, HTTP_METHODS.include?(key.to_s) ? operation(value) : value]
+          shared = Array(node[:parameters])
+          node.except(:parameters).to_h do |key, value|
+            [key, HTTP_METHODS.include?(key.to_s) ? operation(value, shared) : value]
           end
         end
 
@@ -71,14 +73,24 @@ module Service
         # как есть; ответы переносятся из responses.<код>.schema под content.
         # @param body [Hash] операция целиком
         # @return [Hash]
-        def operation(body)
+        def operation(body, shared = [])
           return body unless body.is_a?(Hash)
 
-          content_type = preferred_type(body[:consumes]) || DEFAULT_CONTENT_TYPE
-          others, request = split_parameters(Array(body[:parameters]), content_type)
+          content_type = preferred_type(body[:consumes] || @document[:consumes])
+          others, request = split_parameters(parameters(body, shared), content_type)
           merged = body.merge(parameters: others,
-                              responses: responses(body[:responses], body[:produces]))
+                              responses: responses(body[:responses],
+                                                   body[:produces] || @document[:produces]))
           request ? merged.merge(requestBody: request) : merged
+        end
+
+        # Разрешаем ссылки до преобразования. Операция перекрывает параметры
+        # пути по паре in/name, как предписано Swagger 2.0.
+        def parameters(body, shared)
+          resolved = (shared + Array(body[:parameters])).filter_map do |parameter|
+            @resolver.call(parameter)
+          end
+          resolved.reverse.uniq { |parameter| [parameter[:in], parameter[:name]] }.reverse
         end
 
         # @param parameters [Array<Hash>] параметры операции вперемешку
@@ -111,9 +123,9 @@ module Service
         # @param produces [Array<String>, nil]
         # @return [Hash]
         def responses(responses, produces)
-          content_type = preferred_type(produces) || DEFAULT_CONTENT_TYPE
+          content_type = preferred_type(produces)
           (responses || {}).to_h do |code, body|
-            [code, response_body(body, content_type)]
+            [code, response_body(@resolver.call(body), content_type)]
           end
         end
 
@@ -129,9 +141,9 @@ module Service
         end
 
         # @param list [Array<String>, nil] consumes или produces
-        # @return [Symbol, nil]
+        # @return [Symbol]
         def preferred_type(list)
-          Array(list).first&.to_sym
+          Array(list).first&.to_sym || DEFAULT_CONTENT_TYPE
         end
       end
     end

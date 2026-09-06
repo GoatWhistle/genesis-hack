@@ -19,7 +19,7 @@ module Service
         # Последний сегмент адреса, означающий действие, а не ресурс: у RPC-подобных
         # API соседние действия одного раздела и есть создание со статусом.
         ACTIONS = %w[create get status details detail info retrieve fetch cancel submit execute
-                     update list new process send].freeze
+                     update list new process send abort revoke revocation].freeze
 
         # Сколько очков нужно набрать, чтобы считать операции связанными.
         REQUIRED = 3
@@ -44,6 +44,7 @@ module Service
         # @return [Hash{Symbol => Integer}] доказательства связи и их вес
         def evidence(create, other)
           return {} if create.nil? || other.nil? || create.equal?(other)
+          return {} unless same_branch?(resource_branch(create.path), resource_branch(other.path))
 
           {
             resource: resource_points(create, other),
@@ -83,9 +84,7 @@ module Service
         # раздел с другим действием на конце: /payments/create и /payments/get.
         # @return [Integer]
         def path_points(create, other)
-          return 2 if nested?(create.path, other.path) || nested?(other.path, create.path)
-
-          same_branch?(segments(create.path), segments(other.path)) ? 2 : 0
+          same_branch?(resource_branch(create.path), resource_branch(other.path)) ? 2 : 0
         end
 
         # @param left [Array<String>] статические сегменты адреса создания
@@ -94,27 +93,18 @@ module Service
         def same_branch?(left, right)
           return false if left.empty? || right.empty?
 
-          left == right || prefix?(left, right) || prefix?(right, left) || sibling?(left, right)
+          left == right
         end
 
-        # Адрес статуса — это адрес создания плюс идентификатор: сравниваются
-        # шаблоны как есть, вместе с параметрами, иначе теряются адреса, у которых
-        # весь путь состоит из подстановок.
-        # @param outer [String]
-        # @param inner [String]
-        # @return [Boolean]
-        def nested?(outer, inner)
-          outer.to_s.start_with?("#{inner}/") && !inner.to_s.empty? && inner.to_s != "/"
-        end
-
-        # Соседние действия одного раздела: /payments/create и /payments/get.
-        # @param left [Array<String>]
-        # @param right [Array<String>]
-        # @return [Boolean]
-        def sibling?(left, right)
-          return false unless left.size == right.size && left[0..-2] == right[0..-2]
-
-          ACTIONS.include?(left.last) && ACTIONS.include?(right.last)
+        # Сохраняем положение родительских идентификаторов; удаляем только
+        # конечное действие и идентификатор самого ресурса.
+        def resource_branch(path)
+          parts = path.to_s.split("/").reject(&:empty?).map do |part|
+            part.start_with?("{") ? "{}" : singular(part.downcase)
+          end
+          parts.pop if ACTIONS.include?(parts.last)
+          parts.pop if parts.last == "{}"
+          parts
         end
 
         # Статус и отмена обращаются к одной операции по её идентификатору.
@@ -134,15 +124,6 @@ module Service
         def schema_points(create, other)
           shared = response_properties(create) & response_properties(other)
           shared.size >= SHARED_PROPERTIES ? 1 : 0
-        end
-
-        # @param outer [Array<String>]
-        # @param inner [Array<String>]
-        # @return [Boolean] один список статических сегментов начинает другой
-        def prefix?(outer, inner)
-          return false if inner.empty? || outer.size <= inner.size
-
-          outer.first(inner.size) == inner
         end
 
         # @param path [String]
@@ -171,6 +152,7 @@ module Service
         # @param word [String]
         # @return [String]
         def singular(word)
+          return word if word == "status"
           return word.sub(/ies\z/, "y") if word.end_with?("ies")
           return word.chomp("es") if word.end_with?("ses", "xes", "ches")
           return word.chomp("s") if word.end_with?("s") && !word.end_with?("ss")

@@ -67,8 +67,16 @@ module Service
           return "создание выплаты не распознано, роль #{role.name} без него не имеет смысла" if
             origin.nil?
 
+          if role.trait?(:receives_callback) && linked_callbacks?(allowed, origin)
+            return "неоднозначная связь callback с созданием: несколько событий одного потока"
+          end
+
           "связь с созданием не подтверждена ни у одного кандидата: " \
             "#{allowed.first(RIVALS).map { |item| item.operation.method_name }.join(", ")}"
+        end
+
+        def linked_callbacks?(allowed, origin)
+          allowed.any? { |item| CallbackCoherence.strength(origin, item.operation).positive? }
         end
 
         # Роль создания уже выбрана. Статус и отмена относятся к той же выплате,
@@ -78,10 +86,21 @@ module Service
         def choose(role, allowed, origin)
           return allowed.find { |item| item.operation.equal?(origin) } || allowed.first if
             role.trait?(:creates_operation)
-          return allowed.first if role.trait?(:receives_callback)
           return nil if origin.nil?
+          return choose_callback(allowed, origin) if role.trait?(:receives_callback)
 
           Anchor.linked(allowed, origin, role).first
+        end
+
+        # Прямая принадлежность callback операции сильнее имени события.
+        # При равных доказательствах порядок объявления не решает неоднозначность.
+        def choose_callback(allowed, origin)
+          scored = allowed.map { |item| [item, CallbackCoherence.strength(origin, item.operation)] }
+          best = scored.map(&:last).max
+          return nil unless best&.positive?
+
+          winners = scored.select { |_, strength| strength == best }
+          winners.one? ? winners.first.first : nil
         end
 
         # @return [Models::RoleBinding]
@@ -105,7 +124,9 @@ module Service
         # @return [String, nil] чем подтверждена связь роли с созданием
         def link_of(role, chosen, origin)
           return nil if origin.nil? || role.trait?(:creates_operation)
-          return nil if role.trait?(:receives_callback)
+          if role.trait?(:receives_callback)
+            return CallbackCoherence.explain(origin, chosen.operation)
+          end
 
           Coherence.explain(origin, chosen.operation)
         end

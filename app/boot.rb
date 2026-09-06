@@ -25,6 +25,7 @@ module Rsocket
     "service/adapter_builder/parsing/spec_parser",
     "service/adapter_builder/classification/wording",
     "service/adapter_builder/classification/coherence",
+    "service/adapter_builder/classification/callback_coherence",
     "service/adapter_builder/classification/anchor",
     "service/adapter_builder/classification/classifier",
     "service/adapter_builder/analysis/sample_builder",

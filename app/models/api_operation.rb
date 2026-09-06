@@ -4,7 +4,7 @@ module Models
   # Операция описания API: $ref раскрыты, ответы разложены по кодам.
   class ApiOperation
     attr_reader :operation_id, :http_method, :path, :summary, :description, :tags,
-                :parameters, :responses, :security, :incoming
+                :parameters, :responses, :security, :incoming, :callback_origin
     alias incoming? incoming
 
     # @param operation_id [String, nil] operationId из описания
@@ -17,9 +17,12 @@ module Models
     # @param request [Hash] тело запроса: { schema:, example: }, $ref уже раскрыты
     # @param responses [Hash{String => Hash}] код ответа → { description:, схема: }
     # @param security [Array<Hash>, nil] требования авторизации операции
+    # @param callback_origin [ApiOperation, nil] родитель вложенного OpenAPI callback
     # @param incoming [Boolean] операция объявлена в webhooks/callbacks, а не в paths
     def initialize(operation_id:, http_method:, path:, summary: nil, description: nil, tags: [],
-                   parameters: [], request: {}, responses: {}, security: nil, incoming: false)
+                   parameters: [], request: {}, responses: {}, security: nil, incoming: false,
+                   callback_origin: nil)
+      @callback_origin = callback_origin
       @operation_id = operation_id
       @http_method = http_method.to_s.downcase
       @path = path

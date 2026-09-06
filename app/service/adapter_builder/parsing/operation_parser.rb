@@ -35,7 +35,7 @@ module Service
             shared = Array(node[:parameters])
             node.slice(*HTTP_METHODS.map(&:to_sym)).flat_map do |verb, body|
               operation = build_operation(key.to_s, verb, body, shared, incoming: incoming)
-              incoming ? [operation] : [operation, *callback_operations(body)]
+              incoming ? [operation] : [operation, *callback_operations(body, operation)]
             end
           end
         end
@@ -44,14 +44,15 @@ module Service
         # поэтому они тоже incoming; имя выражения callback используется как путь.
         # @param body [Hash] операция, у которой могут быть объявлены callbacks
         # @return [Array<Models::ApiOperation>]
-        def callback_operations(body)
+        def callback_operations(body, origin)
           (body[:callbacks] || {}).flat_map do |name, expressions|
             expressions.flat_map do |_expression, node|
               next [] unless node.is_a?(Hash)
 
               shared = Array(node[:parameters])
               node.slice(*HTTP_METHODS.map(&:to_sym)).map do |verb, cb_body|
-                build_operation(name.to_s, verb, cb_body, shared, incoming: true)
+                build_operation(name.to_s, verb, cb_body, shared, incoming: true,
+                                                                  callback_origin: origin)
               end
             end
           end
@@ -63,10 +64,10 @@ module Service
         # @param shared [Array<Hash>] параметры, объявленные на уровне пути
         # @param incoming [Boolean] операция объявлена в webhooks или callbacks
         # @return [Models::ApiOperation]
-        def build_operation(path, verb, body, shared, incoming: false)
+        def build_operation(path, verb, body, shared, incoming: false, callback_origin: nil)
           Models::ApiOperation.new(
             operation_id: body[:operationId] || (incoming ? path : nil),
-            http_method: verb, path: path, incoming: incoming,
+            http_method: verb, path: path, incoming: incoming, callback_origin: callback_origin,
             summary: body[:summary], description: body[:description],
             tags: Array(body[:tags]).map(&:to_s), **operation_details(body, shared)
           )
