@@ -1,0 +1,32 @@
+@layer components {
+  .switch-sliding { position: relative; }
+
+  .switch-sliding .switch-item {
+    position: relative;
+    z-index: 0;
+    background: var(--color-paper);
+    transition: color 160ms var(--ease-out-quart);
+  }
+
+  .switch-sliding .switch-item[aria-selected="true"],
+  .switch-sliding .switch-item[aria-pressed="true"],
+  .switch-sliding .switch-item[data-active="true"] {
+    z-index: 1;
+    background: transparent;
+    color: var(--color-paper);
+  }
+
+  .switch-slider {
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background: var(--color-ink);
+    border-radius: 2px;
+  }
+
+  .switch-text { position: relative; z-index: 1; }
+
+  @media (prefers-reduced-motion: reduce) {
+    .switch-slider { transition: none !important; }
+  }
+}

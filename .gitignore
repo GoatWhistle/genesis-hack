@@ -24,3 +24,20 @@
 desc.docx
 rsocket-how-it-works.pdf
 provider_api.yaml
+
+# Витрина web/: зависимости, сборка и рабочие снимки экрана
+/web/node_modules/
+/web/dist/
+/web/.vite/
+/web/.shots/
+/web/src/api/schema.d.ts
+
+# Playwright складывает трассы туда, откуда запущен
+.playwright-mcp/
+
+# Снимки экрана и дампы страниц: место им в web/.shots/, но иногда падают в корень
+/*.png
+/*.jpeg
+/*.webp
+/*.yml
+!/compose.yaml

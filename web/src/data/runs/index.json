@@ -1,0 +1,14 @@
+{
+  "api": "http://127.0.0.1:9292",
+  "baked": "2026-09-05T21:01:54.714Z",
+  "providers": [
+    "kassabox",
+    "nordbank",
+    "novapay",
+    "swiftpay"
+  ],
+  "contracts": [
+    "plain_client",
+    "space_payments"
+  ]
+}

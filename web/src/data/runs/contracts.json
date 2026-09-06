@@ -1,0 +1,112 @@
+[
+  {
+    "name": "plain_client",
+    "title": "обычный клиент на исключениях",
+    "default": false,
+    "files": [
+      "client.rb.erb",
+      "contract.yml",
+      "fixtures.json.erb",
+      "integration.md.erb"
+    ],
+    "outputs": [
+      "<provider>_client.rb",
+      "INTEGRATION.md",
+      "fixtures.json"
+    ],
+    "roles": [
+      {
+        "name": "send_payout",
+        "title": "отправка выплаты",
+        "threshold": 10,
+        "required": true,
+        "traits": [
+          "calls_provider",
+          "creates_operation"
+        ]
+      },
+      {
+        "name": "payout_state",
+        "title": "состояние выплаты",
+        "threshold": 8,
+        "required": true,
+        "traits": [
+          "calls_provider"
+        ]
+      },
+      {
+        "name": "read_callback",
+        "title": "разбор уведомления",
+        "threshold": 8,
+        "required": false,
+        "traits": [
+          "receives_callback"
+        ]
+      },
+      {
+        "name": "cancel_payout",
+        "title": "отмена выплаты",
+        "threshold": 8,
+        "required": false,
+        "traits": [
+          "calls_provider"
+        ]
+      }
+    ]
+  },
+  {
+    "name": "space_payments",
+    "title": "контракт Space Payments (Provider::BaseService)",
+    "default": true,
+    "files": [
+      "contract.yml",
+      "fixtures.json.erb",
+      "integration.md.erb",
+      "service.rb.erb"
+    ],
+    "outputs": [
+      "<provider>_service.rb",
+      "INTEGRATION.md",
+      "fixtures.json"
+    ],
+    "roles": [
+      {
+        "name": "create_request",
+        "title": "создание выплаты",
+        "threshold": 10,
+        "required": true,
+        "traits": [
+          "calls_provider",
+          "creates_operation"
+        ]
+      },
+      {
+        "name": "fetch_status",
+        "title": "статус-запрос",
+        "threshold": 8,
+        "required": true,
+        "traits": [
+          "calls_provider"
+        ]
+      },
+      {
+        "name": "process_callback",
+        "title": "обработка webhook",
+        "threshold": 8,
+        "required": false,
+        "traits": [
+          "receives_callback"
+        ]
+      },
+      {
+        "name": "cancel_request",
+        "title": "отмена операции",
+        "threshold": 8,
+        "required": false,
+        "traits": [
+          "calls_provider"
+        ]
+      }
+    ]
+  }
+]

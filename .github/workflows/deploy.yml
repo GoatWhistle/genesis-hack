@@ -1,0 +1,121 @@
+name: deploy
+
+on:
+  push:
+    branches: [main]
+    paths: ["web/**", ".github/workflows/deploy.yml"]
+  workflow_dispatch:
+
+concurrency:
+  group: deploy
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with: { version: 11 }
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Build
+        working-directory: web
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm typecheck
+          pnpm lint
+          pnpm build
+          pnpm smoke
+
+      - name: Authorize
+        env:
+          SSH_KEY: ${{ secrets.SSH_KEY }}
+          HOST: ${{ secrets.SSH_HOST }}
+        run: |
+          set -euo pipefail
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$SSH_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "$HOST" >> ~/.ssh/known_hosts
+
+      - name: Upload
+        env:
+          HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          RELEASE: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          ssh "$SSH_USER@$HOST" "mkdir -p /srv/rsocket/releases/$RELEASE"
+          rsync -az --delete web/dist/ "$SSH_USER@$HOST:/srv/rsocket/releases/$RELEASE/"
+
+          ssh "$SSH_USER@$HOST" RELEASE="$RELEASE" sh -s <<'REMOTE'
+          set -eu
+          cd /srv/rsocket
+
+          if [ -L current ]; then
+            readlink -f current > previous.path
+          fi
+
+          ln -sfn "/srv/rsocket/releases/$RELEASE" current.tmp
+          mv -T current.tmp current
+          echo "current -> $(readlink -f current)"
+
+          current_path=$(readlink -f current)
+          previous_path=$([ -s previous.path ] && cat previous.path || echo "")
+          ls -1dt releases/* | tail -n +6 | while read -r old; do
+            old_path=$(readlink -f "$old")
+            [ "$old_path" = "$current_path" ] && continue
+            [ "$old_path" = "$previous_path" ] && continue
+            rm -rf "$old"
+          done
+          REMOTE
+
+      - name: Restart services
+        env:
+          HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+        run: |
+          set -euo pipefail
+          ssh "$SSH_USER@$HOST" sh -s <<'REMOTE'
+          set -eu
+          cd /srv/rsocket/repo
+          git fetch --depth 1 origin main
+          git checkout -f FETCH_HEAD
+          docker compose -p rsocket -f web/infra/compose.prod.yaml up -d --build --wait
+          REMOTE
+
+      - name: Smoke test and rollback
+        env:
+          HOST: ${{ secrets.SSH_HOST }}
+          SSH_USER: ${{ secrets.SSH_USER }}
+          SITE: ${{ vars.SITE_URL }}
+        run: |
+          set -uo pipefail
+          ok=1
+          curl -sf --retry 6 --retry-delay 5 --retry-all-errors "$SITE/" > /dev/null || ok=0
+          curl -sf --retry 6 --retry-delay 5 --retry-all-errors "$SITE/api/health" > /dev/null || ok=0
+
+          if [ "$ok" -eq 1 ]; then
+            echo "Site and service are responding."
+            exit 0
+          fi
+
+          echo "Deployment is not responding, rolling back."
+          ssh "$SSH_USER@$HOST" sh -s <<'REMOTE'
+          set -eu
+          cd /srv/rsocket
+          if [ ! -s previous.path ]; then
+            echo "Nothing to roll back to: no previous release."
+            exit 1
+          fi
+          ln -sfn "$(cat previous.path)" current.tmp
+          mv -T current.tmp current
+          echo "Restored $(readlink -f current)"
+          REMOTE
+          exit 1
