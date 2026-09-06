@@ -10,6 +10,11 @@ archetypes:
       # и приём платежа.
       - { field: method_name, pattern: '(payout|disburse|withdraw|cashout|cash_out|remit|transfer|перевод|выплат)', weight: 6 }
       - { field: path, pattern: '(payout|disburse|withdraw|cashout|remit|transfer)', weight: 4 }
+      # У части банковских API операция названа не transfer, а исходящей
+      # транзакцией, disbursement или заявкой на вывод.
+      - { field: method_name, pattern: '(transaction_?out)', weight: 14 }
+      - { field: method_name, pattern: '(transaction_?intent)', weight: 18 }
+      - { field: method_name, pattern: '(disbursement|withdraw_?apply|credit_?transfer)', weight: 12 }
       # Глагол создания. Смотрим method_name, а не operation_id: последнего может не быть.
       - { field: method_name, pattern: '(create|make|submit|send|issue|register|open|start|initiat|\bnew\b|enqueue|instruct|execute|book)', weight: 6 }
       # Слабые существительные: сами по себе роли не дают, но добирают счёт там,
@@ -18,14 +23,19 @@ archetypes:
       - { field: path, pattern: '(payment|order|batch)', weight: 2 }
       - { field: http_method, pattern: '\Apost\z', weight: 2 }
       - { field: path, pattern: '\A[^{}]+\z', weight: 2 }
-      - { field: summary, pattern: '(создать|создание|отправить|отправка|инициировать|выплат|перевод|create|make|submit|send|initiat|issue|start|pay out|transfer)', weight: 2 }
+      - { field: summary, pattern: '(создать|создание|отправить|отправка|инициировать|выплат|перевод|create|make|submit|send|initiat|issue|start|pay out|transfer|disbursement|withdraw)', weight: 2 }
     veto:
       # Создание не выплаты: согласие, ссылка, реквизит, подписка, входящий платёж.
       # Список набран по ошибкам на настоящих описаниях.
       - { field: method_name, pattern: '(refund|cancel|revoke|abort|reverse|return)' }
       - { field: method_name, pattern: '(webhook|callback|notification|event|subscription)' }
-      - { field: method_name, pattern: '(consent|incoming|link|credential|token|instrument|recipient|quote|session|intent|profile|setting|check|estimate|verify|approve|finalize|authoriz|capture)' }
-      - { field: method_name, pattern: '(method|permit|basket|signing|bank_account|transaction|config|score|access|renew|delete|update)' }
+      - { field: method_name, pattern: '(consent|incoming|link|credential|token|instrument|recipient|quote|session|payment_?intent|profile|setting|check|estimate|verify|approve|finalize|authoriz|capture|draft)' }
+      - { field: method_name, pattern: '(method|permit|basket|signing|bank_account|config|score|access|renew|delete|update)' }
+      # Это движение денег внутри продукта либо подготовка контейнера, а не
+      # исполнение одной выплаты получателю.
+      - { field: method_name, pattern: '(internal_?transfer|external_card_transfer)' }
+      - { field: summary, pattern: '(between (your )?accounts|internal transfer|universal transfer|sub[- ]?account|asset transfer|merchant order)' }
+      - { field: tags, pattern: '(card payments)' }
       - { field: method_name, pattern: '(status|info|list|search|export|detail|balance_check)' }
       - { field: path, pattern: '(refund|cancel|revoke|abort|webhook|callback|revocation|consent|incoming|session|authoris|authoriz)' }
       - { field: method_name, pattern: '(authoris|\A\d)' }
@@ -75,7 +85,8 @@ archetypes:
       - { field: method_name, pattern: '(payment|order|batch)', weight: 2 }
       - { field: path, pattern: '(payment|order|batch)', weight: 2 }
       - { field: summary, pattern: '(отмен|отозв|остановить|cancel|revoke|abort|stop)', weight: 2 }
-      - { field: http_method, pattern: '\A(post|delete)\z', weight: 1 }
+      # Отмена нередко меняет состояние операции, поэтому бывает PATCH или PUT.
+      - { field: http_method, pattern: '\A(post|put|patch|delete)\z', weight: 1 }
     veto:
       - { field: method_name, pattern: '(refund|coupon|token|terminal|mandate|authoriz|authoris|document|consent|subscription|timeline|invoice)' }
       - { field: method_name, pattern: '\A(?!.*(?:payout|disburse|transfer|cashout|batch)).*payment.*cancel' }
