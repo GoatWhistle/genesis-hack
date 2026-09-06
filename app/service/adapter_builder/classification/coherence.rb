@@ -19,7 +19,7 @@ module Service
         # Последний сегмент адреса, означающий действие, а не ресурс: у RPC-подобных
         # API соседние действия одного раздела и есть создание со статусом.
         ACTIONS = %w[create get status details detail info retrieve fetch cancel submit execute
-                     update list new process send abort revoke revocation].freeze
+                     update list new process send abort revoke revocation halt cancellation].freeze
 
         # Сколько очков нужно набрать, чтобы считать операции связанными.
         REQUIRED = 3
@@ -93,18 +93,25 @@ module Service
         def same_branch?(left, right)
           return false if left.empty? || right.empty?
 
-          left == right
+          left == right || right == left + ["{}"]
         end
 
-        # Сохраняем положение родительских идентификаторов; удаляем только
-        # конечное действие и идентификатор самого ресурса.
+        # Сохраняем все параметры: конечный параметр создания может выбирать
+        # продукт, а не объект. same_branch? допускает дополнительный ID справа.
         def resource_branch(path)
-          parts = path.to_s.split("/").reject(&:empty?).map do |part|
-            part.start_with?("{") ? "{}" : singular(part.downcase)
-          end
-          parts.pop if ACTIONS.include?(parts.last)
-          parts.pop if parts.last == "{}"
-          parts
+          parts = path.to_s.downcase.split("/").reject(&:empty?)
+          parts.pop if action_segment?(parts.last)
+          parts.map { |part| part.start_with?("{") ? "{}" : singular(part) }
+        end
+
+        # RPC-действие может иметь общее уточнение: payment-status.
+        # Значимые имена ресурсов (например, wire-status) не отбрасываем.
+        def action_segment?(part)
+          return true if ACTIONS.include?(singular(part.to_s))
+
+          words = normalize(part)
+          words.size > 1 && ACTIONS.include?(words.last) &&
+            words[0...-1].all? { |word| GENERIC.include?(word) }
         end
 
         # Статус и отмена обращаются к одной операции по её идентификатору.

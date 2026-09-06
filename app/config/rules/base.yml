@@ -37,6 +37,7 @@ archetypes:
     # Структурные признаки: не как операция названа, а что она принимает и
     # возвращает. Выплата обязана принять сумму с валютой и получателя.
     signals:
+      - { kind: checkout_request, veto: true }
       - { kind: money_request, weight: 3 }
       - { kind: recipient_request, weight: 4 }
       - { kind: identifier_response, weight: 1 }

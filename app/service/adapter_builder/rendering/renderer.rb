@@ -71,7 +71,7 @@ module Service
             return nested_literal(key, field, indent) unless field.leaf?
             return "#{key} #{field.source}" unless field.source.nil?
 
-            "#{key} nil # TODO: правила не знают, чем заполнить это поле"
+            "# TODO: правила не знают, чем заполнить это поле\n#{" " * indent}#{key} nil"
           end
 
           # @param key [String] ключ с двоеточием

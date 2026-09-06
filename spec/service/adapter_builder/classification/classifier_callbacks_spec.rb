@@ -29,6 +29,68 @@ RSpec.describe Service::AdapterBuilder::Classification::Classifier do
     } } }
   end
 
+  def subscription(events)
+    body = { summary: "Webhook event notification",
+             requestBody: { content: { "application/json": {
+               schema: { type: "object", properties: { type: { type: "string", enum: events } } }
+             } } } }
+    { operationId: "createWebhook", tags: ["Webhooks"],
+      callbacks: nested_callback(:WebhookRequest, body) }
+  end
+
+  def register_webhook(events)
+    document[:paths]["/webhooks"] = { post: subscription(events) }
+  end
+
+  def post_operation(path, operation_id, summary)
+    document[:paths][path] = { post: { operationId: operation_id, summary: summary } }
+  end
+
+  it "links a signal to an enqueued disbursement" do
+    document[:paths] = {}
+    post_operation("/disbursements", "enqueueDisbursement", "Queue a disbursement for execution")
+    post_operation("/hooks/disbursement", "disbursementSignal", "Disbursement signal notification")
+    expect(binding.operation&.method_name).to eq("disbursement_signal")
+  end
+
+  it "links a registered webhook with an explicit event for the chosen resource" do
+    document[:paths] = {}
+    post_operation("/external_card_transfers", "createExternalCardTransfer",
+                   "Create an external card transfer")
+    register_webhook(%w[CARD.CREATED EXTERNAL_CARD_TRANSFER.UPDATED])
+    expect(binding.operation&.method_name).to eq("webhook_request")
+  end
+
+  it "does not infer wire events from generic transaction or other transfer events" do
+    document[:paths] = {}
+    post_operation("/wires", "createWire", "Send a wire transfer")
+    register_webhook(%w[TRANSACTION.POSTED.UPDATED EXTERNAL_CARD_TRANSFER.UPDATED])
+    expect(binding).not_to be_bound
+  end
+
+  it "rejects registered foreign flows even when their enums contain payment or payout" do
+    register_webhook(%w[PAYMENT_LINK.UPDATED CARD_AUTHORIZATION.CREATED PAYOUT_INCOMING.CREATED])
+    expect(binding).not_to be_bound
+  end
+
+  it "requires explicit event types for registered webhooks" do
+    document[:paths]["/webhooks"] = { post: subscription([]) }
+    expect(binding).not_to be_bound
+  end
+
+  it "does not use event enums to bypass a foreign payment-link parent" do
+    document[:paths]["/payment-links"] = { post: subscription(%w[PAYOUT.UPDATED]).merge(
+      operationId: "createPaymentLink"
+    ) }
+    expect(binding).not_to be_bound
+  end
+
+  it "refuses equally justified registered callbacks" do
+    document[:paths]["/webhooks"] = { post: subscription(%w[PAYOUT.UPDATED]) }
+    document[:paths]["/callbacks"] = { post: subscription(%w[PAYOUT.CREATED]) }
+    expect(binding).to have_attributes(bound?: false, explanation: a_string_including("неоднознач"))
+  end
+
   it "chooses payout webhooks over competing payment links" do
     document[:webhooks] = { webhook_payment_links: { post: { summary: "Payment link webhook" } },
                             webhook_payouts: { post: event } }

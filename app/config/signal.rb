@@ -22,7 +22,7 @@ module Config
 
     # Признаки, которые умеет считать классификатор. Веса и набор задаёт base.yml.
     KINDS = %i[money_request recipient_request request_body status_response identifier_response
-               id_in_path].freeze
+               id_in_path checkout_request].freeze
 
     attr_reader :kind, :weight
 
@@ -66,6 +66,16 @@ module Config
     # @return [Boolean] в теле запроса назван получатель или его реквизит
     def recipient_request?(operation)
       match?(properties(operation.request_schema), :recipient)
+    end
+
+    # Возврат плательщика из карточного checkout вместе с параметрами capture/MOTO
+    # описывает приём платежа. Один return_url не доказывает направление денег.
+    def checkout_request?(operation)
+      names = properties(operation.request_schema)
+      names.any? { |name| /\Areturn_?url\z/i.match?(name) } &&
+        names.any? do |name|
+          /\A(delayed_?capture|capture_?method|moto|prefilled_?cardholder_?details)\z/i.match?(name)
+        end
     end
 
     # @return [Boolean] у операции вообще описано тело запроса
