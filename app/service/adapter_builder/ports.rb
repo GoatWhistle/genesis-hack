@@ -24,7 +24,7 @@ module Service
         end
       end
 
-      # Раздача ролей по операциям: правила с весами, эмбеддинги или запрос в LLM.
+      # Раздача ролей по операциям: какая операция закрывает какую роль контракта.
       module Classifier
         # @param _operations [Array<Models::ApiOperation>] все операции описания
         # @return [Hash{Symbol => Models::RoleBinding}] роль → привязка, включая заглушки
@@ -60,16 +60,6 @@ module Service
           return candidate if candidate.respond_to?(:call)
 
           raise ArgumentError, "проверяльщик не отвечает на: call"
-        end
-      end
-
-      # Текст в вектор; нужен смысловому классификатору.
-      module Embedder
-        # @param _texts [Array<String>] тексты одним запросом
-        # @return [Array<Array<Float>>] векторы в том же порядке, что и тексты
-        # @raise [NotImplementedError] адаптер не реализовал порт
-        def embed(_texts)
-          raise NotImplementedError, "#{self.class}#embed"
         end
       end
 

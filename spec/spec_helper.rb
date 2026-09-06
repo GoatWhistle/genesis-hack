@@ -4,10 +4,6 @@ require "tmpdir"
 require_relative "../app/boot"
 require_relative "support/contract"
 
-# Подставные сервисы нужны только смысловым классификаторам; их может не быть.
-stubs = File.expand_path("support/classification.rb", __dir__)
-require stubs if File.exist?(stubs)
-
 RSpec.configure do |config|
   config.expect_with(:rspec) do |expectations|
     expectations.include_chain_clauses_in_custom_matcher_descriptions = true
