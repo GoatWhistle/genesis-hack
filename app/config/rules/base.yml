@@ -206,6 +206,7 @@ requisite_patterns:
 
 # Параметры пути и обязательные параметры строки запроса.
 path_patterns:
+  - { field: configured_parameter, patterns: [] }
   - { field: provider_id, patterns: ['\w*(id|no|number|reference|uuid)\z'] }
 
 # Поля тела webhook: по ним обёртка понимает, о какой операции и о чём речь.

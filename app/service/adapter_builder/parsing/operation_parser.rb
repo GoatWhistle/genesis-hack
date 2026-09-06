@@ -113,8 +113,11 @@ module Service
         def parse_responses(responses)
           (responses || {}).to_h do |code, body|
             resolved = @resolver.call(body) || {}
-            [code.to_s,
-             { description: resolved[:description].to_s, **json_body(resolved[:content]) }]
+            headers = (resolved[:headers] || {}).transform_values do |header|
+              @resolver.call(header)
+            end
+            [code.to_s, { description: resolved[:description].to_s, headers: headers,
+                          **json_body(resolved[:content]) }]
           end
         end
 

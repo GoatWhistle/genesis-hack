@@ -9,7 +9,7 @@ RSpec.describe Service::AdapterBuilder::Builder do
 
   it "подставляет параметр пути в адрес статус-запроса" do
     expect(result.source)
-      .to include("request(:get, \"/payouts/\#{operation.provider_operation_id}\")")
+      .to include("request(:get, \"/payouts/\#{path_segment(operation.provider_operation_id)}\")")
   end
 
   it "передаёт ключ идемпотентности заголовком, как его назвал провайдер" do

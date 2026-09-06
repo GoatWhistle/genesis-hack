@@ -91,7 +91,8 @@ module Service
         # @param role [Symbol]
         # @return [String, nil] ожидаемый статус контракта для этой роли
         def expected_status(role)
-          token = dig(@payment.success_response(role), Array(@blueprint.status_field))
+          path = @blueprint.status_fields.to_h.fetch(role, @blueprint.status_field)
+          token = dig(@payment.success_response(role), Array(path))
           return nil if token.nil?
 
           @blueprint.status_map.find { |name, _| name.to_s.casecmp?(token.to_s) }&.last
@@ -158,7 +159,7 @@ module Service
         # @param path [Array<String>]
         # @return [Object, nil]
         def dig(body, path)
-          path.reduce(body) { |node, key| node.is_a?(Hash) ? node[key.to_s] : nil }
+          Parsing::DataPath.read(body, path)
         end
 
         # @param role [Symbol]
