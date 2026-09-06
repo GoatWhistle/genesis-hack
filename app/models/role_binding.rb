@@ -8,21 +8,31 @@ module Models
 
     # @param role [Config::Settings::Role] роль контракта
     # @param operation [Models::ApiOperation, nil] занявшая её операция; nil — заглушка
-    # @param score [Integer] набранный счёт
-    # @param matched_rules [Array<Config::Rule>] сработавшие правила
-    # @param reason [String, nil] почему роль осталась незанятой
-    def initialize(role:, operation: nil, score: 0, matched_rules: [], reason: nil)
+    # @param score [Numeric] набранный счёт: очки у правил, близость или уверенность
+    #   у смысловых классификаторов
+    # @param matched_rules [Array<#to_s>] сработавшие правила; у классификатора,
+    #   который правил не читает, список пустой
+    # @param reason [String, nil] объяснение решения своими словами. У правил его
+    #   заполняет только заглушка: счёт и список правил объясняют себя сами
+    # @param threshold [Numeric, nil] порог, с которым сравнивался счёт; nil — порог
+    #   роли из конфига. У смысловых классификаторов своя шкала, и порог свой
+    def initialize(role:, operation: nil, score: 0, matched_rules: [], reason: nil,
+                   threshold: nil)
       @role = role
       @operation = operation
       @score = score
       @matched_rules = matched_rules
       @reason = reason
+      @threshold = threshold
     end
 
     # @return [Boolean] нашлась ли операция под роль
     def bound?
       !operation.nil?
     end
+
+    # @return [Numeric] порог, ниже которого роль не назначается
+    def threshold = @threshold || role.threshold
 
     # @return [String] эндпоинт роли: POST /payouts
     def endpoint
@@ -37,9 +47,9 @@ module Models
     # Человеческое объяснение решения — уходит в mapping.yml и в комментарий кода.
     # @return [String]
     def explanation
-      return reason unless bound?
+      return reason if reason
 
-      "счёт #{score} при пороге #{role.threshold}: #{matched_rules.join(", ")}"
+      "счёт #{score} при пороге #{threshold}: #{matched_rules.join(", ")}"
     end
   end
 end

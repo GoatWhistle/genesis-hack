@@ -17,11 +17,15 @@ module Rsocket
     "adapter/s3/signature", "adapter/s3/client",
     "repositories/rules/store", "repositories/rules/local", "repositories/rules/s3",
     "adapter/upload/store", "adapter/upload/file", "adapter/upload/s3",
+    "adapter/embedding/voyage",
+    "adapter/classification/embeddings",
+    "adapter/classification/llm", "adapter/classification/llm/prompt",
     "config/rule", "config/settings", "config/catalog", "config/vocabulary",
     "config/importer", "config/storage",
     "service/adapter_builder/parsing/schema_probe",
     "service/adapter_builder/parsing/schema_resolver",
     "service/adapter_builder/parsing/spec_parser",
+    "service/adapter_builder/classification/wording",
     "service/adapter_builder/classification/classifier",
     "service/adapter_builder/analysis/sample_builder",
     "service/adapter_builder/analysis/status_mapper",
@@ -47,6 +51,32 @@ module Rsocket
 
   FILES.each { |file| require APP.join("#{file}.rb").to_s }
 
+  # Чем раздаются роли. Правила из конфига — по умолчанию: они не ходят в сеть и
+  # ничего не стоят. Два других читают смысл описания и требуют ключа: эмбеддинги —
+  # VOYAGE_API_KEY, запрос в модель — ANTHROPIC_API_KEY.
+  CLASSIFIERS = {
+    "rules" => ->(rules) { Service::AdapterBuilder::Classification::Classifier.new(rules) },
+    "embeddings" => ->(rules) { Adapter::Classification::Embeddings.new(rules) },
+    "llm" => ->(rules) { Adapter::Classification::Llm.new(rules) }
+  }.freeze
+
+  DEFAULT_CLASSIFIER = "rules"
+
+  # @param kind [String, Symbol, #call] имя классификатора или готовый объект —
+  #   готовым удобно мерить: клиент и его соединение переживают несколько сборок
+  # @param rules [Config::Settings] правила разбора
+  # @return [Service::AdapterBuilder::Ports::Classifier]
+  # @raise [ArgumentError] классификатора с таким именем нет
+  def self.classifier(kind, rules)
+    return kind if kind.respond_to?(:call)
+
+    factory = CLASSIFIERS.fetch(kind.to_s) do
+      raise ArgumentError, "неизвестный классификатор #{kind}. " \
+                           "Известны: #{CLASSIFIERS.keys.join(", ")}"
+    end
+    factory.call(rules)
+  end
+
   # Собранный сценарий с настоящими адаптерами: чтение описания, печать через ERB
   # и правила из выбранного хранилища. Единственное место, где порты соединяются
   # с реализациями.
@@ -57,14 +87,19 @@ module Rsocket
   # @param catalog [Config::Catalog] откуда берутся правила: диск или бакет
   # @param rules [Config::Settings] правила разбора
   # @param spec_source [Ports::SpecSource] откуда берём описание: файл или текст запроса
+  # @param classifier [String, Symbol, #call, nil] чем раздавать роли: rules, embeddings
+  #   или llm; nil — как сказано в RSOCKET_CLASSIFIER, а без неё правила
   # @return [Service::AdapterBuilder::Builder]
   def self.builder(contract: Config::Catalog.default, catalog: Config::Catalog.new,
                    rules: Config::Importer.new(contract, catalog: catalog).call,
-                   spec_source: Adapter::Loader::File::SpecLoader.new)
+                   spec_source: Adapter::Loader::File::SpecLoader.new,
+                   classifier: nil)
     Service::AdapterBuilder::Builder.new(
       spec_source: spec_source,
       renderer: Service::AdapterBuilder::Rendering::Renderer.new(rules.contract.outputs),
-      rules: rules
+      rules: rules,
+      classifier: classifier(classifier || ENV.fetch("RSOCKET_CLASSIFIER", DEFAULT_CLASSIFIER),
+                             rules)
     )
   end
 

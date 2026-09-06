@@ -26,6 +26,38 @@ module Service
         end
       end
 
+      # Кто раздаёт роли операциям описания. Реализаций три: правила с весами
+      # (Classification::Classifier), косинусовая близость эмбеддингов и запрос в
+      # LLM. Сценарий сборки одинаково работает с любой.
+      module Classifier
+        # @param _operations [Array<Models::ApiOperation>] все операции описания
+        # @return [Hash{Symbol => Models::RoleBinding}] роль → привязка, включая заглушки
+        # @raise [NotImplementedError] адаптер не реализовал порт
+        def call(_operations)
+          raise NotImplementedError, "#{self.class}#call"
+        end
+
+        # @param candidate [Object] предполагаемый классификатор
+        # @return [Object] тот же объект, если он подходит
+        # @raise [ArgumentError] объект не умеет раздавать роли
+        def self.assert!(candidate)
+          return candidate if candidate.respond_to?(:call)
+
+          raise ArgumentError, "классификатор не отвечает на: call"
+        end
+      end
+
+      # Чем текст превращается в вектор. Нужен смысловому классификатору: сравнивать
+      # описание операции с эталоном роли он умеет только числами.
+      module Embedder
+        # @param _texts [Array<String>] тексты одной пачкой — так дешевле и быстрее
+        # @return [Array<Array<Float>>] векторы в том же порядке, что и тексты
+        # @raise [NotImplementedError] адаптер не реализовал порт
+        def embed(_texts)
+          raise NotImplementedError, "#{self.class}#embed"
+        end
+      end
+
       # Правила разбора вместе с профилем контракта, под который собирается класс.
       # Реализация — Config::Settings.
       module Rules

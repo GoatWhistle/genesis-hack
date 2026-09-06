@@ -53,7 +53,7 @@ rsocket слушает http://127.0.0.1:9292
   GET  /contracts    — профили контрактов и их роли
   GET  /rules        — что лежит в хранилище правил
   PUT  /rules/<ключ> — записать правила или шаблон
-  POST /build        — сборка: ?provider=имя[&contract=профиль], тело — описание
+  POST /build        — сборка: ?provider=имя[&contract=профиль][&classifier=способ], тело — описание
 хранилище: s3: правила — s3://rsocket/rules, результат — s3://rsocket/output
 ```
 

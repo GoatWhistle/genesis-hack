@@ -63,14 +63,15 @@ module Service
         end
 
         # @param binding [Models::RoleBinding] роль, которой нашлась операция
-        # @return [Hash] эндпоинт, имя операции, счёт, порог и сработавшие правила
+        # @return [Hash] эндпоинт, имя операции, счёт, порог и объяснение решения
         def bound(binding)
           {
             "status" => state(binding.role),
             "operation" => binding.operation.method_name,
             "endpoint" => binding.endpoint,
             "score" => binding.score,
-            "threshold" => binding.role.threshold,
+            "threshold" => binding.threshold,
+            "why" => binding.explanation,
             "matched_rules" => binding.matched_rules.map(&:to_s)
           }
         end

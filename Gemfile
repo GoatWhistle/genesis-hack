@@ -2,6 +2,7 @@
 
 source "https://rubygems.org"
 
+gem "anthropic", "~> 1.69"
 gem "rack", "~> 3.1"
 gem "rackup", "~> 2.2"
 gem "thor", "~> 1.3"

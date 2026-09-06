@@ -178,8 +178,10 @@ module Controller
         params = Rack::Utils.parse_query(request.query_string)
         provider = present!(params["provider"], "provider")
         contract = params["contract"] || Config::Catalog.default
+        classifier = params["classifier"]
 
-        built(@assembler.call(spec: spec, provider: provider, contract: contract))
+        built(@assembler.call(spec: spec, provider: provider, contract: contract,
+                              classifier: classifier))
       end
 
       # @param outcome [Service::BuildManager::Assembler::Outcome]

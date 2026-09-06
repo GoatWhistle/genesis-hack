@@ -22,11 +22,14 @@ module Service
       # @param spec_source [Ports::SpecSource] чем читаем описание API
       # @param renderer [Ports::Renderer] чем печатаем класс
       # @param rules [Ports::Rules] правила разбора, обычно Config::Settings
-      # @raise [ArgumentError] объект правил не реализует порт
-      def initialize(spec_source:, renderer:, rules:)
+      # @param classifier [Ports::Classifier, nil] чем раздаются роли; по умолчанию —
+      #   правила с весами из конфига, единственный классификатор без внешних вызовов
+      # @raise [ArgumentError] объект правил или классификатора не реализует порт
+      def initialize(spec_source:, renderer:, rules:, classifier: nil)
         @spec_source = spec_source
         @renderer = renderer
         @rules = Ports::Rules.assert!(rules)
+        @classifier = Ports::Classifier.assert!(classifier || Classification::Classifier.new(rules))
       end
 
       # Собирает сервис целиком.
@@ -54,7 +57,7 @@ module Service
       # @return [Hash{Symbol => Models::RoleBinding}]
       # @raise [RuntimeError] осталась незанятой обязательная роль
       def classify(operations)
-        bindings = Classification::Classifier.new(@rules).call(operations)
+        bindings = @classifier.call(operations)
         stubs = bindings.values.reject(&:bound?).map(&:role_name)
         missing = stubs.select { |role| @rules.required_role?(role) }
         return bindings if missing.empty?

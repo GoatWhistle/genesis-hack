@@ -240,6 +240,17 @@ paths:
           schema:
             type: string
             example: space_payments
+        - name: classifier
+          in: query
+          required: false
+          description: >
+            Чем раздавать роли операциям: `rules` — правила с весами, `embeddings` —
+            косинусовая близость к эталону роли, `llm` — запрос в модель. Двум
+            последним нужны ключи в окружении сервера.
+          schema:
+            type: string
+            enum: [rules, embeddings, llm]
+            default: rules
       requestBody:
         required: true
         description: Описание API провайдера

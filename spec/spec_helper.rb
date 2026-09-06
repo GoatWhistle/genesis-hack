@@ -3,6 +3,7 @@
 require "tmpdir"
 require_relative "../app/boot"
 require_relative "support/contract"
+require_relative "support/classification"
 
 RSpec.configure do |config|
   config.expect_with(:rspec) do |expectations|

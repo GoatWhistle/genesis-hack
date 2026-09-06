@@ -25,9 +25,10 @@ module Service
       # @param spec [String, Pathname] чем адресуется описание: путь или сам текст
       # @param provider [String] имя провайдера
       # @param contract [String] имя профиля контракта
+      # @param classifier [String, Symbol, #call, nil] чем раздавать роли; nil — по умолчанию
       # @return [Outcome] что собралось и куда легло
-      def call(spec:, provider:, contract: Config::Catalog.default)
-        result = builder(contract).call(reference: spec, provider: provider)
+      def call(spec:, provider:, contract: Config::Catalog.default, classifier: nil)
+        result = builder(contract, classifier).call(reference: spec, provider: provider)
         blueprint = result.blueprint
 
         Outcome.new(provider: blueprint.provider, contract: blueprint.contract,
@@ -38,9 +39,11 @@ module Service
       private
 
       # @param contract [String]
+      # @param classifier [String, Symbol, #call]
       # @return [Service::AdapterBuilder::Builder]
-      def builder(contract)
-        Rsocket.builder(contract: contract, catalog: @catalog, spec_source: @spec_source)
+      def builder(contract, classifier)
+        Rsocket.builder(contract: contract, catalog: @catalog, spec_source: @spec_source,
+                        classifier: classifier)
       end
     end
   end
